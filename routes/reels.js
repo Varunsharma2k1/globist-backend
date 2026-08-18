@@ -1,0 +1,169 @@
+const express = require('express');
+const router = express.Router();
+const multer = require('multer');
+const path = require('path');
+const crypto = require('crypto');
+const Reel = require('../models/Reel');
+const User = require('../models/User');
+const { auth, optionalAuth } = require('../middleware/auth');
+
+// Stores uploaded reel media (video/photo) under /uploads/reels, served
+// statically by index.js. Filenames are randomized to avoid collisions.
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: path.join(__dirname, '..', 'uploads', 'reels'),
+    filename: (req, file, cb) => {
+      const unique = crypto.randomBytes(12).toString('hex');
+      cb(null, `${unique}${path.extname(file.originalname) || ''}`);
+    },
+  }),
+  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
+  fileFilter: (req, file, cb) => {
+    const isMedia = /^(video|image)\//.test(file.mimetype);
+    cb(isMedia ? null : new Error('Only video or image files are allowed'), isMedia);
+  },
+});
+
+// POST /api/reels/upload — Upload a reel's video/photo file, returns its URL
+router.post('/upload', optionalAuth, upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+    res.status(201).json({ url: `/uploads/reels/${req.file.filename}` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reels — Cursor-based feed (scalable infinite scroll)
+router.get('/', optionalAuth, async (req, res, next) => {
+  try {
+    const { cursor, limit = 5, agency } = req.query;
+    const filter = {};
+    if (agency) filter.agency = agency;
+
+    // Cursor is a createdAt timestamp — fetch reels older than cursor
+    if (cursor) {
+      filter.createdAt = { $lt: new Date(cursor) };
+    }
+
+    const reels = await Reel.find(filter)
+      .populate('user', 'name explorerTier stats avatar')
+      .populate('agency', 'name location startingPrice rating imageType')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit) + 1); // Fetch one extra to determine if there's a next page
+
+    const hasMore = reels.length > parseInt(limit);
+    const results = hasMore ? reels.slice(0, -1) : reels;
+    const nextCursor = results.length > 0 ? results[results.length - 1].createdAt.toISOString() : null;
+
+    res.json({
+      reels: results,
+      nextCursor,
+      hasMore
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reels/trending — Get trending reels
+router.get('/trending', async (req, res, next) => {
+  try {
+    const reels = await Reel.find()
+      .populate('user', 'name explorerTier avatar')
+      .populate('agency', 'name location startingPrice rating imageType')
+      .sort({ likes: -1 })
+      .limit(6);
+    res.json(reels);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/reels — Post a new reel
+router.post('/', optionalAuth, async (req, res, next) => {
+  try {
+    const { caption, tags, location, isAffiliate, agencyId, bookingId, imageType, musicTitle, mediaUrl } = req.body;
+
+    // Use authenticated user or fall back to demo user
+    let postingUser = req.user;
+    if (!postingUser) {
+      postingUser = await User.findOne().sort({ createdAt: 1 });
+      if (!postingUser) {
+        return res.status(401).json({ message: 'No user available. Please sign up first.' });
+      }
+    }
+
+    const reel = new Reel({
+      user: postingUser._id,
+      agency: agencyId || undefined,
+      booking: bookingId || undefined,
+      caption,
+      tags: tags || [],
+      location: location || '',
+      isAffiliate: isAffiliate || false,
+      imageType: imageType || 'mountain',
+      mediaUrl: mediaUrl || '',
+      musicTitle: musicTitle || '',
+      creatorHandle: `@${postingUser.name.toLowerCase().replace(/\s+/g, '_')}`,
+      creatorTier: postingUser.explorerTier || 'bronze',
+      likes: 0,
+      comments: 0,
+      shares: 0
+    });
+
+    await reel.save();
+
+    const populatedReel = await Reel.findById(reel._id)
+      .populate('user', 'name explorerTier avatar')
+      .populate('agency', 'name location startingPrice rating imageType');
+
+    res.status(201).json(populatedReel);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/reels/:id/like — Like/unlike a reel
+router.post('/:id/like', auth, async (req, res, next) => {
+  try {
+    const reel = await Reel.findById(req.params.id);
+    if (!reel) {
+      return res.status(404).json({ message: 'Reel not found' });
+    }
+
+    const userId = req.user._id;
+    const idx = reel.likedBy.indexOf(userId);
+
+    if (idx > -1) {
+      reel.likedBy.splice(idx, 1);
+      reel.likes = Math.max(0, reel.likes - 1);
+      await reel.save();
+      return res.json({ liked: false, likes: reel.likes });
+    } else {
+      reel.likedBy.push(userId);
+      reel.likes += 1;
+      await reel.save();
+      return res.json({ liked: true, likes: reel.likes });
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reels/agency/:agencyId — Reels for a specific agency
+router.get('/agency/:agencyId', async (req, res, next) => {
+  try {
+    const reels = await Reel.find({ agency: req.params.agencyId })
+      .populate('user', 'name explorerTier avatar')
+      .sort({ likes: -1 })
+      .limit(10);
+    res.json(reels);
+  } catch (error) {
+    next(error);
+  }
+});
+
+module.exports = router;
