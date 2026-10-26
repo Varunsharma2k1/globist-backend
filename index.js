@@ -59,7 +59,15 @@ app.use(errorHandler);
 async function startServer() {
   try {
     await connectDB();
-    await seedDatabase();
+
+    // Only seed a fresh/empty database. With a persistent MONGO_URI this
+    // means real data survives restarts instead of being wiped and re-seeded
+    // with new _ids every time the process starts.
+    const User = require('./models/User');
+    const existingUserCount = await User.countDocuments();
+    if (existingUserCount === 0) {
+      await seedDatabase();
+    }
 
     app.listen(PORT, () => {
       console.log(`\n🚀 Globist API running on http://localhost:${PORT}`);
