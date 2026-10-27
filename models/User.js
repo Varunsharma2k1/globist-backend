@@ -3,10 +3,16 @@ const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
-  phone: { type: String, required: true, unique: true, trim: true },
-  email: { type: String, trim: true },
-  password: { type: String, required: true },
+  phone: { type: String, unique: true, sparse: true, trim: true },
+  email: { type: String, unique: true, sparse: true, trim: true, lowercase: true },
+  // Not required: Google-only accounts have no password.
+  password: { type: String },
+  authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
+  googleId: { type: String, unique: true, sparse: true },
   role: { type: String, enum: ['traveler', 'creator', 'agency'], default: 'traveler' },
+  // True for brand-new accounts until they pick traveler/creator/agency.
+  // Defaults to false so pre-existing (seeded) users aren't prompted.
+  needsAccountType: { type: Boolean, default: false },
   interests: [{ type: String }],
   bio: { type: String, default: '' },
   location: { type: String, default: '' },
@@ -16,6 +22,7 @@ const userSchema = new mongoose.Schema({
   stats: {
     trips: { type: Number, default: 0 },
     followers: { type: Number, default: 0 },
+    following: { type: Number, default: 0 },
     bookingsInspired: { type: Number, default: 0 },
     reviews: { type: Number, default: 0 }
   },
@@ -28,7 +35,7 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before save
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
+  if (!this.password || !this.isModified('password')) return next();
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
@@ -36,6 +43,7 @@ userSchema.pre('save', async function(next) {
 
 // Compare password
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.password) return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 

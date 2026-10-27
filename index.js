@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const { ensureDemoAccounts } = require('./seed/demoAccounts');
 const path = require('path');
 const { connectDB } = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
@@ -60,17 +61,27 @@ async function startServer() {
   try {
     await connectDB();
 
+    const User = require('./models/User');
+    // phone/email are now optional+sparse-unique; bring any older index
+    // (non-sparse unique phone) in line with the schema.
+    await User.syncIndexes();
+    // Give the pre-existing demo user an email so it can log in with email.
+    await User.updateOne(
+      { phone: '+91 98765 43210', email: { $exists: false } },
+      { $set: { email: 'demo@globist.app' } }
+    );
     // Only seed a fresh/empty database. With a persistent MONGO_URI this
     // means real data survives restarts instead of being wiped and re-seeded
     // with new _ids every time the process starts.
-    const User = require('./models/User');
     const existingUserCount = await User.countDocuments();
     if (existingUserCount === 0) {
       await seedDatabase();
     }
 
+    await ensureDemoAccounts();
+
     app.listen(PORT, () => {
-      console.log(`\n🚀 Globist API running on http://localhost:${PORT}`);
+      console.log(`\n🚀 Triptape API running on http://localhost:${PORT}`);
       console.log(`   Health: http://localhost:${PORT}/api/health`);
       console.log(`\n📱 Demo Login:`);
       console.log(`   Phone: +91 98765 43210`);

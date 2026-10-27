@@ -1,6 +1,7 @@
 // Demo account used for local development and the mobile app's demo login.
 module.exports = {
     name: 'Arjun Sharma',
+    email: 'demo@globist.app',
     phone: '+91 98765 43210',
     password: '123456',
     role: 'creator',
