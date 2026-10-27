@@ -1,7 +1,6 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const { auth, generateAccessToken, generateRefreshToken, JWT_SECRET } = require('../middleware/auth');
 
@@ -9,14 +8,6 @@ const { auth, generateAccessToken, generateRefreshToken, JWT_SECRET } = require(
 const SIGNUP_ROLES = ['traveler', 'agency'];
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 6;
-
-// GOOGLE_CLIENT_IDS: comma-separated OAuth client IDs (web/iOS/Android) whose
-// ID tokens we accept.
-const googleClientIds = (process.env.GOOGLE_CLIENT_IDS || '')
-  .split(',')
-  .map((id) => id.trim())
-  .filter(Boolean);
-const googleClient = new OAuth2Client();
 
 const sanitize = (user) => {
   const obj = user.toObject();
@@ -85,59 +76,8 @@ router.post('/login', async (req, res, next) => {
         message: 'No account found for this email',
       });
     }
-    if (!user.password) {
-      return res.status(401).json({ message: 'This account uses Google sign-in. Please continue with Google.' });
-    }
     if (!(await user.comparePassword(password))) {
       return res.status(401).json({ message: 'Invalid email or password' });
-    }
-
-    res.json(await startSession(user));
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/auth/google  { idToken }
-// Verifies a Google ID token, then signs in or creates the account.
-router.post('/google', async (req, res, next) => {
-  try {
-    const { idToken } = req.body;
-    if (!idToken) {
-      return res.status(400).json({ message: 'Google ID token is required' });
-    }
-    if (!googleClientIds.length) {
-      return res.status(503).json({ message: 'Google sign-in is not configured on the server' });
-    }
-
-    let payload;
-    try {
-      const ticket = await googleClient.verifyIdToken({ idToken, audience: googleClientIds });
-      payload = ticket.getPayload();
-    } catch (err) {
-      return res.status(401).json({ message: 'Invalid Google token' });
-    }
-    if (!payload.email || !payload.email_verified) {
-      return res.status(401).json({ message: 'Google account email is not verified' });
-    }
-
-    const email = payload.email.toLowerCase();
-    let user = await User.findOne({ $or: [{ googleId: payload.sub }, { email }] });
-
-    if (user) {
-      // Link Google to an existing email/password account on first use.
-      if (!user.googleId) user.googleId = payload.sub;
-      if (!user.avatar && payload.picture) user.avatar = payload.picture;
-    } else {
-      user = new User({
-        name: payload.name || email.split('@')[0],
-        email,
-        googleId: payload.sub,
-        authProvider: 'google',
-        avatar: payload.picture || '',
-        isVerified: true,
-        needsAccountType: true,
-      });
     }
 
     res.json(await startSession(user));
