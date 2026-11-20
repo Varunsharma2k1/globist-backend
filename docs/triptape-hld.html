@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TripTape System Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one wide left-to-right blueprint, three colored request flows drawn as metro lines, details below in scannable panels. */
+:root{
+  --bg:#EEF1F4; --surface:#FFFFFF; --lane:#E6EAEE; --lane-alt:#EBEEF1;
+  --ink:#14202C; --muted:#5A6878; --line:#C3CCD5; --line-strong:#8E9BA8;
+  --a:#D9482B; --b:#B7770F; --c:#0B8584;
+  --display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D131A; --surface:#151E28; --lane:#111921; --lane-alt:#131C25;
+    --ink:#E4EBF2; --muted:#93A3B4; --line:#2A3846; --line-strong:#4D6072;
+    --a:#FF7A5C; --b:#F0B43C; --c:#2CC7B9; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D131A; --surface:#151E28; --lane:#111921; --lane-alt:#131C25;
+  --ink:#E4EBF2; --muted:#93A3B4; --line:#2A3846; --line-strong:#4D6072;
+  --a:#FF7A5C; --b:#F0B43C; --c:#2CC7B9; color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--body);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1680px;margin:0 auto;padding:32px clamp(16px,3vw,40px) 64px}
+header{display:grid;grid-template-columns:1fr auto;gap:24px;align-items:end;margin-bottom:22px}
+h1{font:700 clamp(28px,3.4vw,44px)/1.05 var(--display);letter-spacing:-.02em;margin:0 0 10px;text-wrap:balance}
+.lede{margin:0;color:var(--muted);max-width:72ch}
+.meta{font:12px/1.6 var(--mono);color:var(--muted);text-align:right}
+h2{font:700 22px/1.2 var(--display);letter-spacing:-.01em;margin:0 0 6px;text-wrap:balance}
+.sub{color:var(--muted);margin:0 0 18px;max-width:80ch}
+section{margin-top:44px}
+code,.mono{font-family:var(--mono);font-size:.86em}
+
+/* toolbar */
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.bar button{font:500 13px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 14px 7px 10px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+.bar button:hover{border-color:var(--line-strong)}
+.bar button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.bar button:focus-visible,.tabs button:focus-visible{outline:2px solid var(--c);outline-offset:2px}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--line-strong)}
+.dot.a{background:var(--a)}.dot.b{background:var(--b)}.dot.c{background:var(--c)}
+.legend{margin-left:auto;display:flex;gap:16px;flex-wrap:wrap;font:12px var(--mono);color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:22px;height:0;border-top:2px solid var(--line-strong)}
+.sw.d{border-top-style:dashed}
+
+/* diagram */
+figure{margin:0}
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:10px;overflow-x:auto}
+.diagram svg{display:block;width:100%;min-width:1180px;height:auto}
+figcaption{font-size:13px;color:var(--muted);margin-top:10px;max-width:110ch}
+svg .lane{fill:var(--lane)} svg .lane.alt{fill:var(--lane-alt)}
+svg .colh{font:600 12px var(--mono);letter-spacing:.12em;fill:var(--ink)}
+svg .cols{font:11px var(--mono);fill:var(--muted)}
+svg .grp{font:500 9.5px var(--mono);letter-spacing:.06em;fill:var(--muted)}
+svg .box-group{fill:none;stroke:var(--line-strong);stroke-width:1;stroke-dasharray:4 4}
+svg .tier{stroke:var(--line-strong);stroke-width:1;stroke-dasharray:2 5}
+svg .tierl{font:10.5px var(--mono);fill:var(--muted)}
+svg .node rect, svg .node path{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.2}
+svg .node path.cap{fill:none}
+svg .node.ext rect{stroke-dasharray:5 3}
+svg .node.later rect, svg .node.later path{stroke-dasharray:5 4}
+svg .node .t{font:600 13px var(--body);fill:var(--ink)}
+svg .node.mini .t{font-size:12px}
+svg .node.mini .s{font-size:10px}
+svg .node .s{font:11px var(--mono);fill:var(--muted)}
+svg .s{font:11px var(--mono);fill:var(--muted)}
+svg .tag{font:500 9px var(--mono);letter-spacing:.08em;fill:var(--muted)}
+svg .halo{fill:none;stroke:var(--surface);stroke-width:7;stroke-linejoin:round}
+svg .ln{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
+svg .ln-n{stroke:var(--line-strong);stroke-width:1.8}
+svg .ln-a{stroke:var(--a)} svg .ln-b{stroke:var(--b)} svg .ln-c{stroke:var(--c)}
+svg .mk-n{fill:var(--line-strong)} svg .mk-a{fill:var(--a)} svg .mk-b{fill:var(--b)} svg .mk-c{fill:var(--c)}
+svg .lbl{font:500 10.5px var(--mono);fill:var(--muted);paint-order:stroke;stroke:var(--surface);stroke-width:4px}
+svg .lbl-a{fill:var(--a)} svg .lbl-b{fill:var(--b)} svg .lbl-c{fill:var(--c)}
+svg .badge circle{stroke:var(--surface);stroke-width:2}
+svg .b-a circle{fill:var(--a)} svg .b-b circle{fill:var(--b)} svg .b-c circle{fill:var(--c)}
+svg .badge text{font:700 10.5px var(--body);fill:#fff}
+:root[data-theme="dark"] svg .badge text{fill:#0D131A}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) svg .badge text{fill:#0D131A}}
+svg .f,svg .nl{transition:opacity .2s}
+figure[data-flow="a"] svg .f:not(.f-a), figure[data-flow="b"] svg .f:not(.f-b), figure[data-flow="c"] svg .f:not(.f-c){opacity:.08}
+figure[data-flow="a"] svg .nl, figure[data-flow="b"] svg .nl, figure[data-flow="c"] svg .nl{opacity:.45}
+@media (prefers-reduced-motion: reduce){svg .f,svg .nl{transition:none}}
+
+/* flows */
+.flows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.flowcard{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--k);border-radius:12px;padding:18px 20px;transition:opacity .2s}
+.flowcard.a{--k:var(--a)}.flowcard.b{--k:var(--b)}.flowcard.c{--k:var(--c)}
+.flowcard h3{font:700 17px var(--display);margin:0 0 2px}
+.flowcard .route{font:12px var(--mono);color:var(--muted);margin:0 0 12px}
+.flowcard ol{list-style:none;margin:0;padding:0;display:grid;gap:9px}
+.flowcard li{display:grid;grid-template-columns:24px 1fr;gap:10px;font-size:14px;line-height:1.45}
+.flowcard li b{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--k);color:var(--surface);font:700 11px var(--body);margin-top:1px}
+body[data-flow="a"] .flowcard:not(.a), body[data-flow="b"] .flowcard:not(.b), body[data-flow="c"] .flowcard:not(.c){opacity:.4}
+
+/* tables */
+.tbl{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--lane)}
+tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td .svc{display:block;font:12px var(--mono);color:var(--muted)}
+tr.total td{font-weight:600;background:var(--lane);font-size:15px}
+tr.total td.n{font:600 16px var(--display)}
+.pill{display:inline-block;font:500 10.5px var(--mono);letter-spacing:.05em;padding:2px 8px;border-radius:999px;border:1px solid var(--line-strong);color:var(--muted);white-space:nowrap}
+.pill.now{border-color:var(--c);color:var(--c)}
+.pill.later{border-style:dashed}
+
+/* caching strip */
+.layers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.layer{padding:16px 18px;border-right:1px solid var(--line)}
+.layer:last-child{border-right:0}
+.layer .k{font:600 11px var(--mono);letter-spacing:.1em;color:var(--muted)}
+.layer h4{font:700 16px var(--display);margin:4px 0 6px}
+.layer p{margin:0;font-size:13.5px;color:var(--muted)}
+.layer .hit{font:500 12px var(--mono);color:var(--ink);margin-top:8px}
+
+/* cost */
+.stages{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.stage .k{font:600 11px var(--mono);letter-spacing:.1em;color:var(--muted)}
+.stage .big{font:700 34px/1.1 var(--display);letter-spacing:-.02em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.stage .inr{font:13px var(--mono);color:var(--muted)}
+.stage ul{margin:10px 0 0;padding-left:18px;font-size:13.5px;color:var(--muted)}
+.callouts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px}
+.callout{border-left:3px solid var(--k,var(--line-strong));background:var(--surface);border-radius:0 10px 10px 0;padding:14px 16px;font-size:14px}
+.callout.a{--k:var(--a)}.callout.b{--k:var(--b)}.callout.c{--k:var(--c)}
+.callout h4{margin:0 0 4px;font:700 15px var(--display)}
+.callout p{margin:0;color:var(--muted)}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px;max-width:110ch}
+
+/* concepts */
+.concepts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.cgroup{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.cgroup h4{font:600 11px var(--mono);letter-spacing:.1em;color:var(--muted);margin:0 0 10px;text-transform:uppercase}
+.cgroup dl{margin:0;display:grid;gap:8px}
+.cgroup dt{font-weight:600;font-size:14px}
+.cgroup dd{margin:0;font-size:13.5px;color:var(--muted)}
+
+.two{display:grid;grid-template-columns:1.2fr 1fr;gap:16px}
+.steps{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:0;list-style:none;counter-reset:s;display:grid;gap:12px}
+.steps li{counter-increment:s;display:grid;grid-template-columns:30px 1fr;gap:10px;font-size:14px}
+.steps li::before{content:counter(s,decimal-leading-zero);font:600 12px var(--mono);color:var(--c);padding-top:2px}
+.steps li strong{display:block}
+.steps li span{color:var(--muted)}
+
+.tiers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin-bottom:16px}
+.tier{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.tier .k{font:600 11px var(--mono);letter-spacing:.1em;color:var(--muted)}
+.tier .big{font:700 32px/1.1 var(--display);letter-spacing:-.02em;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.tier .big span{font-size:15px;color:var(--muted)}
+.tier .inr{font:12.5px var(--mono);color:var(--muted)}
+.tier dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:12px 0 0;font-size:13.5px}
+.tier dt{color:var(--muted)} .tier dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.mintbl td .amt{display:block;font:600 15px var(--display);font-variant-numeric:tabular-nums}
+.mintbl tr.total td .amt{font-size:18px}
+.mintbl tr.cap td{background:var(--lane);font-size:13.5px}
+@media (max-width:1000px){
+  .tiers{grid-template-columns:1fr 1fr}
+  .flows,.stages,.callouts,.concepts,.two{grid-template-columns:1fr}
+  .layers{grid-template-columns:1fr 1fr}
+  .layer:nth-child(2){border-right:0}
+  .layer:nth-child(-n+2){border-bottom:1px solid var(--line)}
+  header{grid-template-columns:1fr}.meta{text-align:left}
+  .legend{margin-left:0}
+}
+@media (max-width:480px){.tiers{grid-template-columns:1fr}.layers{grid-template-columns:1fr}.layer{border-right:0;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div>
+    <h1>TripTape system architecture</h1>
+    <p class="lede">High-level design for a travel app where short reels drive trip bookings. It can run for about <strong>$23 a month</strong> for the first 1k users and grows to a million monthly users by adding capacity, not by rewriting. Click a flow to follow one request through the system.</p>
+  </div>
+  <div class="meta">HLD v1 · Nov 2026<br>AWS ap-south-1 (Mumbai) + Cloudflare<br>Node.js · PostgreSQL · Redis · R2</div>
+</header>
+
+<figure id="fig" data-flow="all">
+  <div class="bar" role="group" aria-label="Highlight a request flow">
+    <button type="button" data-f="all" aria-pressed="true"><span class="dot"></span>All flows</button>
+    <button type="button" data-f="a" aria-pressed="false"><span class="dot a"></span>A · Watch the feed</button>
+    <button type="button" data-f="b" aria-pressed="false"><span class="dot b"></span>B · Upload a reel</button>
+    <button type="button" data-f="c" aria-pressed="false"><span class="dot c"></span>C · Book &amp; pay</button>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw"></i>shared path</span>
+      <span><i class="sw d"></i>external · add later</span>
+      <span>L1–L3 cache layers</span>
+    </div>
+  </div>
+  <div class="diagram">
+<svg viewBox="0 0 1640 1120" role="img" aria-label="TripTape architecture: clients go through Cloudflare and an AWS load balancer into a Node.js modular monolith backed by Redis and PostgreSQL; video goes directly to Cloudflare R2, is transcoded by spot workers and served from the Cloudflare CDN; events flow through a queue to workers that notify users, update feeds and reconcile Razorpay payments.">
+<defs>
+<marker id="m-n" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk mk-n" d="M0,1 L10,5 L0,9 z"/></marker>
+<marker id="m-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk mk-a" d="M0,1 L10,5 L0,9 z"/></marker>
+<marker id="m-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk mk-b" d="M0,1 L10,5 L0,9 z"/></marker>
+<marker id="m-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk mk-c" d="M0,1 L10,5 L0,9 z"/></marker>
+</defs>
+<rect class="lane " x="10" y="8" width="190" height="1104" rx="14"/>
+<text class="colh" x="24" y="38">CLIENTS</text>
+<text class="cols" x="24" y="56">who calls us</text>
+<rect class="lane alt" x="216" y="8" width="208" height="1104" rx="14"/>
+<text class="colh" x="230" y="38">EDGE</text>
+<text class="cols" x="230" y="56">Cloudflare</text>
+<rect class="lane " x="436" y="8" width="208" height="1104" rx="14"/>
+<text class="colh" x="450" y="38">ENTRY</text>
+<text class="cols" x="450" y="56">AWS ap-south-1</text>
+<rect class="lane alt" x="656" y="8" width="310" height="1104" rx="14"/>
+<text class="colh" x="670" y="38">APPLICATION</text>
+<text class="cols" x="670" y="56">stateless · autoscaled</text>
+<rect class="lane " x="978" y="8" width="388" height="1104" rx="14"/>
+<text class="colh" x="992" y="38">DATA &amp; WORKERS</text>
+<text class="cols" x="992" y="56">source of truth · caches · async</text>
+<rect class="lane alt" x="1380" y="8" width="250" height="1104" rx="14"/>
+<text class="colh" x="1394" y="38">THIRD-PARTY &amp; OPS</text>
+<text class="cols" x="1394" y="56">managed services</text>
+<line class="tier" x1="16" y1="800" x2="1624" y2="800"/>
+<text class="tierl" x="1618" y="792" text-anchor="end">↑ synchronous request path</text>
+<text class="tierl" x="1618" y="818" text-anchor="end">↓ async · media · events</text>
+<rect class="box-group" x="672" y="84" width="280" height="690" rx="12"/>
+<text class="grp" x="686" y="102">NODE.JS MODULAR MONOLITH · ECS FARGATE 2→N</text>
+<rect class="box-group" x="1060" y="84" width="290" height="532" rx="12"/>
+<rect class="box-group" x="1060" y="826" width="290" height="220" rx="12"/>
+<text class="grp" x="1072" y="844">WORKERS · FARGATE SPOT (≈70% OFF)</text>
+<g class="nl">
+<path class="halo" d="M194,348 L232,348"/>
+<path class="ln ln-n" d="M194,348 L232,348" marker-end="url(#m-n)"/>
+<text class="lbl" x="213" y="340" text-anchor="middle">HTTPS</text>
+</g>
+<g class="nl">
+<path class="halo" d="M408,348 L450,348"/>
+<path class="ln ln-n" d="M408,348 L450,348" marker-end="url(#m-n)"/>
+</g>
+<g class="nl">
+<path class="halo" d="M540,378 L540,420"/>
+<path class="ln ln-n" d="M540,378 L540,420" marker-end="url(#m-n)"/>
+</g>
+<g class="nl">
+<path class="halo" d="M630,475 L672,475"/>
+<path class="ln ln-n" d="M630,475 L672,475" marker-end="url(#m-n)"/>
+<text class="lbl" x="651" y="467" text-anchor="middle">/api/*</text>
+</g>
+<g class="nl">
+<path class="halo" d="M186,139 L330,139 L330,300"/>
+<path class="ln ln-n" d="M186,139 L330,139 L330,300" marker-end="url(#m-n)"/>
+</g>
+<g class="nl">
+<path class="halo" d="M186,213 L310,213 L310,300"/>
+<path class="ln ln-n" d="M186,213 L310,213 L310,300" marker-end="url(#m-n)"/>
+</g>
+<g class="nl">
+<path class="halo" d="M938,140 L1072,140"/>
+<path class="ln ln-n" d="M938,140 L1072,140" marker-end="url(#m-n)"/>
+<text class="lbl" x="1000" y="133" text-anchor="middle">sessions · OTP</text>
+</g>
+<g class="nl">
+<path class="halo" d="M938,436 L1072,436"/>
+<path class="ln ln-n" d="M938,436 L1072,436" marker-end="url(#m-n)"/>
+</g>
+<g class="nl">
+<path class="halo" d="M812,936 L812,956"/>
+<path class="ln ln-n" d="M812,936 L812,956" marker-end="url(#m-n)"/>
+</g>
+<g class="f f-a">
+<path class="halo" d="M938,204 L1072,204"/>
+<path class="ln ln-a" d="M938,204 L1072,204" marker-end="url(#m-a)"/>
+</g>
+<g class="f f-a">
+<path class="halo" d="M938,226 L984,226 L984,363 L1072,363"/>
+<path class="ln ln-a" d="M938,226 L984,226 L984,363 L1072,363" marker-end="url(#m-a)"/>
+</g>
+<g class="f f-a">
+<path class="halo" d="M938,356 L966,356 L966,184 L1072,184"/>
+<path class="ln ln-a" d="M938,356 L966,356 L966,184 L1072,184" marker-end="url(#m-a)"/>
+</g>
+<g class="f f-a">
+<path class="halo" d="M232,888 L100,888 L100,396"/>
+<path class="ln ln-a" d="M232,888 L100,888 L100,396" marker-end="url(#m-a)"/>
+</g>
+<g class="f f-a">
+<path class="halo" d="M450,888 L408,888"/>
+<path class="ln ln-a" d="M450,888 L408,888" marker-end="url(#m-a)"/>
+</g>
+<text class="f f-a lbl lbl-a" x="166" y="878" text-anchor="middle">HLS · ABR</text>
+<g class="f f-b">
+<path class="halo" d="M938,288 L1072,288"/>
+<path class="ln ln-b" d="M938,288 L1072,288" marker-end="url(#m-b)"/>
+</g>
+<g class="f f-b">
+<path class="halo" d="M150,396 L150,814 L540,814 L540,840"/>
+<path class="ln ln-b" d="M150,396 L150,814 L540,814 L540,840" marker-end="url(#m-b)"/>
+</g>
+<text class="f f-b lbl lbl-b" x="345" y="806" text-anchor="middle">presigned PUT · raw video</text>
+<g class="f f-b">
+<path class="halo" d="M630,888 L686,888"/>
+<path class="ln ln-b" d="M630,888 L686,888" marker-end="url(#m-b)"/>
+</g>
+<g class="f f-b">
+<path class="halo" d="M938,900 L1046,900 L1046,1008 L1070,1008"/>
+<path class="ln ln-b" d="M938,900 L1046,900 L1046,1008 L1070,1008" marker-end="url(#m-b)"/>
+</g>
+<g class="f f-b">
+<path class="halo" d="M1137,1034 L1137,1086 L540,1086 L540,936"/>
+<path class="ln ln-b" d="M1137,1034 L1137,1086 L540,1086 L540,936" marker-end="url(#m-b)"/>
+</g>
+<text class="f f-b lbl lbl-b" x="840" y="1078" text-anchor="middle">HLS renditions + thumbnail → media/</text>
+<g class="f f-b">
+<path class="halo" d="M1205,826 L1205,616"/>
+<path class="ln ln-b" d="M1205,826 L1205,616" marker-end="url(#m-b)"/>
+</g>
+<text class="f f-b lbl lbl-b" x="1214" y="748" text-anchor="start">ready · index · fan-out</text>
+<g class="f f-c">
+<path class="halo" d="M938,578 L1002,578 L1002,160 L1072,160"/>
+<path class="ln ln-c" d="M938,578 L1002,578 L1002,160 L1072,160" marker-end="url(#m-c)"/>
+</g>
+<g class="f f-c">
+<path class="halo" d="M938,594 L1020,594 L1020,302 L1072,302"/>
+<path class="ln ln-c" d="M938,594 L1020,594 L1020,302 L1072,302" marker-end="url(#m-c)"/>
+</g>
+<g class="f f-c">
+<path class="halo" d="M938,640 L1038,640 L1038,316 L1072,316"/>
+<path class="ln ln-c" d="M938,640 L1038,640 L1038,316 L1072,316" marker-end="url(#m-c)"/>
+</g>
+<g class="f f-c">
+<path class="halo" d="M938,656 L1400,656"/>
+<path class="ln ln-c" d="M938,656 L1400,656" marker-end="url(#m-c)"/>
+</g>
+<g class="f f-c">
+<path class="halo" d="M1400,676 L938,676"/>
+<path class="ln ln-c" d="M1400,676 L938,676" marker-end="url(#m-c)"/>
+</g>
+<text class="f f-c lbl lbl-c" x="1300" y="648" text-anchor="middle">create order</text>
+<text class="f f-c lbl lbl-c" x="1300" y="692" text-anchor="middle">webhook · HMAC verified</text>
+<g class="f f-c">
+<path class="halo" d="M812,774 L812,840"/>
+<path class="ln ln-c" d="M812,774 L812,840" marker-end="url(#m-c)"/>
+</g>
+<text class="f f-c lbl lbl-c" x="820" y="812" text-anchor="start">outbox events</text>
+<g class="f f-c">
+<path class="halo" d="M938,860 L1060,860"/>
+<path class="ln ln-c" d="M938,860 L1060,860" marker-end="url(#m-c)"/>
+</g>
+<g class="f f-c">
+<path class="halo" d="M1340,1008 L1400,1008"/>
+<path class="ln ln-c" d="M1340,1008 L1400,1008" marker-end="url(#m-c)"/>
+</g>
+<g class="f f-c">
+<path class="halo" d="M1370,1008 L1370,946 L1400,946"/>
+<path class="ln ln-c" d="M1370,1008 L1370,946 L1400,946" marker-end="url(#m-c)"/>
+</g>
+<g class="node "><rect x="24" y="110" width="162" height="58" rx="9"/>
+<text class="t" x="36" y="131">Agency portal</text>
+<text class="s" x="36" y="148">trips · slots · payouts</text>
+</g>
+<g class="node "><rect x="24" y="184" width="162" height="58" rx="9"/>
+<text class="t" x="36" y="205">Admin console</text>
+<text class="s" x="36" y="222">moderation · refunds</text>
+</g>
+<g class="node "><rect x="24" y="300" width="162" height="96" rx="9"/>
+<text class="t" x="36" y="321">TripTape app</text>
+<text class="s" x="36" y="338">React Native (Expo)</text>
+<text class="s" x="36" y="352">HLS player · prefetch</text>
+<text class="s" x="36" y="366">React Query cache</text>
+<text class="tag" x="176" y="319" text-anchor="end">L1</text>
+</g>
+<g class="node "><rect x="232" y="300" width="176" height="96" rx="9"/>
+<text class="t" x="244" y="321">Cloudflare edge</text>
+<text class="s" x="244" y="338">DNS · TLS · WAF</text>
+<text class="s" x="244" y="352">DDoS · bot filter</text>
+<text class="s" x="244" y="366">edge rate limit</text>
+</g>
+<g class="node "><rect x="450" y="318" width="180" height="60" rx="9"/>
+<text class="t" x="462" y="339">Load balancer</text>
+<text class="s" x="462" y="356">AWS ALB · multi-AZ</text>
+</g>
+<g class="node "><rect x="450" y="420" width="180" height="110" rx="9"/>
+<text class="t" x="462" y="441">Gateway middleware</text>
+<text class="s" x="462" y="458">JWT verify</text>
+<text class="s" x="462" y="472">token bucket (Redis)</text>
+<text class="s" x="462" y="486">Idempotency-Key</text>
+<text class="s" x="462" y="500">request ID · tracing</text>
+</g>
+<g class="node "><rect x="686" y="112" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="133">Auth &amp; users</text>
+<text class="s" x="698" y="150">OTP · JWT · profiles · follows</text>
+</g>
+<g class="node "><rect x="686" y="186" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="207">Feed</text>
+<text class="s" x="698" y="224">ranked reels · cursor paging</text>
+</g>
+<g class="node "><rect x="686" y="260" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="281">Reels &amp; media</text>
+<text class="s" x="698" y="298">metadata · presigned uploads</text>
+</g>
+<g class="node "><rect x="686" y="334" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="355">Engagement</text>
+<text class="s" x="698" y="372">likes · views · comments</text>
+</g>
+<g class="node "><rect x="686" y="408" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="429">Search &amp; explore</text>
+<text class="s" x="698" y="446">reels · places · creators</text>
+</g>
+<g class="node "><rect x="686" y="482" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="503">Trips &amp; agencies</text>
+<text class="s" x="698" y="520">packages · regions · slots</text>
+</g>
+<g class="node "><rect x="686" y="556" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="577">Booking</text>
+<text class="s" x="698" y="594">seat holds · inventory · saga</text>
+</g>
+<g class="node "><rect x="686" y="630" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="651">Payments</text>
+<text class="s" x="698" y="668">orders · webhooks · refunds</text>
+</g>
+<g class="node "><rect x="686" y="704" width="252" height="56" rx="9"/>
+<text class="t" x="698" y="725">Notifications</text>
+<text class="s" x="698" y="742">push · SMS · email triggers</text>
+</g>
+<g class="node db ">
+<path d="M1072,103 A133.0,7 0 0 1 1338,103 V207 A133.0,7 0 0 1 1072,207 Z"/>
+<path class="cap" d="M1072,103 A133.0,7 0 0 0 1338,103"/>
+<text class="t" x="1084" y="125">Redis (ElastiCache Valkey)</text>
+<text class="s" x="1084" y="142">cache-aside · TTL</text>
+<text class="s" x="1084" y="156">feeds: sorted sets</text>
+<text class="s" x="1084" y="170">counters: INCR → flush</text>
+<text class="s" x="1084" y="184">seat holds: SET NX EX 600</text>
+<text class="s" x="1084" y="198">rate-limit buckets</text>
+<text class="tag" x="1328" y="123" text-anchor="end">L3 CACHE</text>
+</g>
+<g class="node db ">
+<path d="M1072,237 A133.0,7 0 0 1 1338,237 V315 A133.0,7 0 0 1 1072,315 Z"/>
+<path class="cap" d="M1072,237 A133.0,7 0 0 0 1338,237"/>
+<text class="t" x="1084" y="259">PostgreSQL primary</text>
+<text class="s" x="1084" y="276">RDS Multi-AZ · PgBouncer</text>
+<text class="s" x="1084" y="290">users · reels · follows · trips</text>
+<text class="s" x="1084" y="304">bookings · payments ledger</text>
+<text class="tag" x="1328" y="257" text-anchor="end">OLTP</text>
+</g>
+<g class="node db ">
+<path d="M1072,345 A133.0,7 0 0 1 1338,345 V381 A133.0,7 0 0 1 1072,381 Z"/>
+<path class="cap" d="M1072,345 A133.0,7 0 0 0 1338,345"/>
+<text class="t" x="1084" y="367">Read replicas</text>
+<text class="tag" x="1328" y="365" text-anchor="end">READS</text>
+</g>
+<text class="s" x="1084" y="381">feed rebuild · explore · reports</text>
+<g class="node db ">
+<path d="M1072,411 A133.0,7 0 0 1 1338,411 V453 A133.0,7 0 0 1 1072,453 Z"/>
+<path class="cap" d="M1072,411 A133.0,7 0 0 0 1338,411"/>
+<text class="t" x="1084" y="433">Search index</text>
+<text class="s" x="1084" y="450">Postgres FTS → Typesense</text>
+<text class="tag" x="1328" y="431" text-anchor="end">SEARCH</text>
+</g>
+<g class="node db ">
+<path d="M1072,483 A133.0,7 0 0 1 1338,483 V525 A133.0,7 0 0 1 1072,525 Z"/>
+<path class="cap" d="M1072,483 A133.0,7 0 0 0 1338,483"/>
+<text class="t" x="1084" y="505">Analytics</text>
+<text class="s" x="1084" y="522">PostHog → ClickHouse</text>
+<text class="tag" x="1328" y="503" text-anchor="end">OLAP</text>
+</g>
+<g class="node db later">
+<path d="M1072,555 A133.0,7 0 0 1 1338,555 V597 A133.0,7 0 0 1 1072,597 Z"/>
+<path class="cap" d="M1072,555 A133.0,7 0 0 0 1338,555"/>
+<text class="t" x="1084" y="577">ScyllaDB</text>
+<text class="s" x="1084" y="594">likes/views at billions</text>
+<text class="tag" x="1328" y="575" text-anchor="end">LATER</text>
+</g>
+<g class="node "><rect x="232" y="840" width="176" height="96" rx="9"/>
+<text class="t" x="244" y="861">Cloudflare CDN</text>
+<text class="s" x="244" y="878">HLS segments</text>
+<text class="s" x="244" y="892">thumbnails · images</text>
+<text class="s" x="244" y="906">immutable · 1-yr TTL</text>
+<text class="tag" x="398" y="859" text-anchor="end">L2</text>
+</g>
+<g class="node "><rect x="450" y="840" width="180" height="96" rx="9"/>
+<text class="t" x="462" y="861">Cloudflare R2</text>
+<text class="s" x="462" y="878">raw/ private bucket</text>
+<text class="s" x="462" y="892">media/ HLS 240–720p</text>
+<text class="s" x="462" y="906">zero egress fees</text>
+<text class="tag" x="620" y="859" text-anchor="end">OBJECT</text>
+</g>
+<g class="node "><rect x="686" y="840" width="252" height="96" rx="9"/>
+<text class="t" x="698" y="861">Event bus</text>
+<text class="s" x="698" y="878">BullMQ on Redis → SQS</text>
+<text class="s" x="698" y="892">Kafka / Redpanda at scale</text>
+<text class="s" x="698" y="906">outbox relay · at-least-once</text>
+<text class="tag" x="928" y="859" text-anchor="end">QUEUE</text>
+</g>
+<g class="node small"><rect x="686" y="956" width="252" height="44" rx="9"/>
+<text class="t" x="698" y="977">Dead-letter queue</text>
+</g>
+<text class="s" x="820" y="983">retry · backoff</text>
+<g class="node mini"><rect x="1070" y="854" width="134" height="52" rx="9"/>
+<text class="t" x="1082" y="875">Feed fan-out</text>
+<text class="s" x="1082" y="892">→ follower feeds</text>
+</g>
+<g class="node mini"><rect x="1212" y="854" width="128" height="52" rx="9"/>
+<text class="t" x="1224" y="875">Search indexer</text>
+<text class="s" x="1224" y="892">PG → search sync</text>
+</g>
+<g class="node mini"><rect x="1070" y="918" width="134" height="52" rx="9"/>
+<text class="t" x="1082" y="939">Counter flush</text>
+<text class="s" x="1082" y="956">Redis → PG / OLAP</text>
+</g>
+<g class="node mini"><rect x="1212" y="918" width="128" height="52" rx="9"/>
+<text class="t" x="1224" y="939">Reconciler</text>
+<text class="s" x="1224" y="956">payouts · refunds</text>
+</g>
+<g class="node mini"><rect x="1070" y="982" width="134" height="52" rx="9"/>
+<text class="t" x="1082" y="1003">Transcode</text>
+<text class="s" x="1082" y="1020">FFmpeg → HLS</text>
+</g>
+<g class="node mini"><rect x="1212" y="982" width="128" height="52" rx="9"/>
+<text class="t" x="1224" y="1003">Notifier</text>
+<text class="s" x="1224" y="1020">push · SMS · email</text>
+</g>
+<g class="node "><rect x="1400" y="96" width="216" height="100" rx="9"/>
+<text class="t" x="1412" y="117">Observability</text>
+<text class="s" x="1412" y="134">OpenTelemetry traces</text>
+<text class="s" x="1412" y="148">Grafana Cloud · Sentry</text>
+<text class="s" x="1412" y="162">SLO alerts → Slack</text>
+</g>
+<g class="node "><rect x="1400" y="212" width="216" height="86" rx="9"/>
+<text class="t" x="1412" y="233">Delivery</text>
+<text class="s" x="1412" y="250">GitHub Actions → ECR</text>
+<text class="s" x="1412" y="264">ECS blue/green · Terraform</text>
+</g>
+<g class="node "><rect x="1400" y="314" width="216" height="86" rx="9"/>
+<text class="t" x="1412" y="335">Security</text>
+<text class="s" x="1412" y="352">SSM secrets · KMS</text>
+<text class="s" x="1412" y="366">least-privilege IAM</text>
+</g>
+<g class="node ext"><rect x="1400" y="626" width="216" height="66" rx="9"/>
+<text class="t" x="1412" y="647">Razorpay</text>
+<text class="s" x="1412" y="664">UPI · cards · netbanking</text>
+<text class="s" x="1412" y="678">Route → agency payouts</text>
+<text class="tag" x="1606" y="645" text-anchor="end">PAYMENTS</text>
+</g>
+<g class="node ext"><rect x="1400" y="856" width="216" height="52" rx="9"/>
+<text class="t" x="1412" y="877">Google Maps / Places</text>
+<text class="s" x="1412" y="894">geocode · autocomplete</text>
+</g>
+<g class="node ext"><rect x="1400" y="920" width="216" height="52" rx="9"/>
+<text class="t" x="1412" y="941">FCM / APNs</text>
+<text class="s" x="1412" y="958">push notifications</text>
+</g>
+<g class="node ext"><rect x="1400" y="982" width="216" height="52" rx="9"/>
+<text class="t" x="1412" y="1003">MSG91 · Amazon SES</text>
+<text class="s" x="1412" y="1020">SMS OTP · email receipts</text>
+</g>
+<g class="f f-a badge b-a"><circle cx="213" cy="372" r="9.5"/><text x="213" y="375.6" text-anchor="middle">1</text></g>
+<g class="f f-b badge b-b"><circle cx="213" cy="392" r="9.5"/><text x="213" y="395.6" text-anchor="middle">1</text></g>
+<g class="f f-c badge b-c"><circle cx="213" cy="412" r="9.5"/><text x="213" y="415.6" text-anchor="middle">1</text></g>
+<g class="f f-a badge b-a"><circle cx="1035" cy="204" r="9.5"/><text x="1035" y="207.6" text-anchor="middle">2</text></g>
+<g class="f f-a badge b-a"><circle cx="984" cy="330" r="9.5"/><text x="984" y="333.6" text-anchor="middle">3</text></g>
+<g class="f f-a badge b-a"><circle cx="100" cy="640" r="9.5"/><text x="100" y="643.6" text-anchor="middle">4</text></g>
+<g class="f f-a badge b-a"><circle cx="429" cy="870" r="9.5"/><text x="429" y="873.6" text-anchor="middle">5</text></g>
+<g class="f f-a badge b-a"><circle cx="966" cy="250" r="9.5"/><text x="966" y="253.6" text-anchor="middle">6</text></g>
+<g class="f f-b badge b-b"><circle cx="1035" cy="288" r="9.5"/><text x="1035" y="291.6" text-anchor="middle">2</text></g>
+<g class="f f-b badge b-b"><circle cx="150" cy="600" r="9.5"/><text x="150" y="603.6" text-anchor="middle">3</text></g>
+<g class="f f-b badge b-b"><circle cx="656" cy="888" r="9.5"/><text x="656" y="891.6" text-anchor="middle">4</text></g>
+<g class="f f-b badge b-b"><circle cx="992" cy="900" r="9.5"/><text x="992" y="903.6" text-anchor="middle">5</text></g>
+<g class="f f-b badge b-b"><circle cx="700" cy="1086" r="9.5"/><text x="700" y="1089.6" text-anchor="middle">6</text></g>
+<g class="f f-b badge b-b"><circle cx="1205" cy="770" r="9.5"/><text x="1205" y="773.6" text-anchor="middle">7</text></g>
+<g class="f f-c badge b-c"><circle cx="1002" cy="520" r="9.5"/><text x="1002" y="523.6" text-anchor="middle">2</text></g>
+<g class="f f-c badge b-c"><circle cx="1020" cy="470" r="9.5"/><text x="1020" y="473.6" text-anchor="middle">3</text></g>
+<g class="f f-c badge b-c"><circle cx="1110" cy="656" r="9.5"/><text x="1110" y="659.6" text-anchor="middle">4</text></g>
+<g class="f f-c badge b-c"><circle cx="1110" cy="676" r="9.5"/><text x="1110" y="679.6" text-anchor="middle">5</text></g>
+<g class="f f-c badge b-c"><circle cx="1038" cy="610" r="9.5"/><text x="1038" y="613.6" text-anchor="middle">6</text></g>
+<g class="f f-c badge b-c"><circle cx="812" cy="800" r="9.5"/><text x="812" y="803.6" text-anchor="middle">7</text></g>
+<g class="f f-c badge b-c"><circle cx="992" cy="860" r="9.5"/><text x="992" y="863.6" text-anchor="middle">8</text></g>
+<g class="f f-c badge b-c"><circle cx="1370" cy="977" r="9.5"/><text x="1370" y="980.6" text-anchor="middle">9</text></g>
+</svg>
+  </div>
+  <figcaption>Requests move left to right. The top half is the synchronous path a user waits on; the bottom half is work done in the background. Video bytes never pass through the API servers: the app uploads straight to R2 and plays from the CDN. The Razorpay webhook also enters through Cloudflare and the load balancer; it's drawn as a direct line to keep the picture readable.</figcaption>
+</figure>
+
+<section aria-labelledby="flows-h">
+  <h2 id="flows-h">The three request flows</h2>
+  <p class="sub">The numbers match the badges in the diagram.</p>
+  <div class="flows">
+    <article class="flowcard a">
+      <h3>A · Watch the reel feed</h3>
+      <p class="route">GET /api/feed · p95 target &lt; 150 ms</p>
+      <ol>
+        <li><b>1</b><span>App → Cloudflare → ALB → gateway. The JWT is checked and one rate-limit token is taken from Redis.</span></li>
+        <li><b>2</b><span>Feed service reads the precomputed feed from Redis (<code>feed:{userId}</code> sorted set). Around 95% of reads end here, in about 5 ms.</span></li>
+        <li><b>3</b><span>On a miss it rebuilds from a Postgres <em>read replica</em> (followed creators + trending in the user's region) and writes the result back with a 10-minute TTL.</span></li>
+        <li><b>4</b><span>The response carries reel metadata. The player streams HLS from the Cloudflare CDN and picks 240p–720p to suit the connection.</span></li>
+        <li><b>5</b><span>On a CDN miss the segment is pulled from R2 once. Segments never change, so they're cached for a year.</span></li>
+        <li><b>6</b><span>The app batches views and likes every ~10 s. Engagement does <code>INCR</code> in Redis, and the counter-flush worker writes totals to Postgres each minute.</span></li>
+      </ol>
+    </article>
+    <article class="flowcard b">
+      <h3>B · Upload a reel</h3>
+      <p class="route">POST /api/reels/upload-url · async processing</p>
+      <ol>
+        <li><b>1</b><span>The app asks for an upload slot.</span></li>
+        <li><b>2</b><span>Reels service writes the reel row as <code>PROCESSING</code> and returns a presigned R2 PUT URL that expires in 15 min.</span></li>
+        <li><b>3</b><span>The app uploads the raw video straight to R2, so the API servers stay small and cheap.</span></li>
+        <li><b>4</b><span>R2 emits an ObjectCreated event (Cloudflare Queues → bus). If it's missed, the app's "upload complete" call acts as a backup.</span></li>
+        <li><b>5</b><span>A transcode worker on Fargate Spot picks up the job.</span></li>
+        <li><b>6</b><span>FFmpeg writes HLS renditions (240/480/720p) and a thumbnail to the public <code>media/</code> bucket.</span></li>
+        <li><b>7</b><span>Workers mark the reel <code>READY</code>, index it for search and push its ID into followers' feeds. Most creators use fan-out on write; creators with 10k+ followers use fan-out on read.</span></li>
+      </ol>
+    </article>
+    <article class="flowcard c">
+      <h3>C · Book and pay for a trip</h3>
+      <p class="route">POST /api/bookings · saga over Razorpay</p>
+      <ol>
+        <li><b>1</b><span>The app sends <code>POST /bookings</code> with an <code>Idempotency-Key</code> header, so a retry can't create a second booking.</span></li>
+        <li><b>2</b><span>Booking holds the seat: <code>SET hold:{trip}:{date} NX EX 600</code>. A second buyer is told it's held straight away.</span></li>
+        <li><b>3</b><span>In one Postgres transaction: booking <code>PENDING</code> + <code>UPDATE slots SET left = left − n WHERE left &gt;= n</code>. If no row updates, the trip is sold out, so nothing can be sold twice.</span></li>
+        <li><b>4</b><span>Payments creates a Razorpay order using the server-side price. The app then opens Razorpay Checkout (UPI / card / netbanking).</span></li>
+        <li><b>5</b><span>When Razorpay's webhook arrives, Payments checks its HMAC signature and ignores repeats of the same <code>payment_id</code>.</span></li>
+        <li><b>6</b><span>A single transaction sets the booking to <code>CONFIRMED</code>, adds a ledger entry and writes a <code>BookingConfirmed</code> row to the outbox.</span></li>
+        <li><b>7</b><span>The outbox relay publishes the event to the bus. If the app crashes, no event is lost.</span></li>
+        <li><b>8</b><span>The reconciler schedules the agency payout through Razorpay Route. If payment fails or the hold expires, it refunds and releases the seat (saga compensation).</span></li>
+        <li><b>9</b><span>The notifier sends a push (FCM/APNs) plus an SMS and email confirmation.</span></li>
+      </ol>
+    </article>
+  </div>
+</section>
+
+<section aria-labelledby="store-h">
+  <h2 id="store-h">Which store holds what</h2>
+  <p class="sub">Start with three: Postgres, Redis and R2. Add the others only when the trigger in the last column happens.</p>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Store</th><th>Holds</th><th>Why this one</th><th>Stage</th><th>Add or upgrade when</th></tr></thead>
+      <tbody>
+        <tr><td><strong>PostgreSQL</strong><span class="svc">AWS RDS · PgBouncer</span></td><td>Users, follows, reels metadata, trips, slots, bookings, payments ledger, outbox</td><td>ACID transactions and row locks stop a seat being sold twice. Foreign keys keep the money data consistent.</td><td><span class="pill now">DAY 1</span></td><td>Add a read replica above ~60% CPU or when feed rebuilds slow down writes</td></tr>
+        <tr><td><strong>Redis / Valkey</strong><span class="svc">ElastiCache</span></td><td>Feeds, hot reel metadata, view/like counters, seat holds, rate-limit buckets, OTPs, BullMQ jobs</td><td>Sub-millisecond reads, atomic <code>INCR</code> and <code>SET NX</code>, and TTLs that release a hold automatically</td><td><span class="pill now">DAY 1</span></td><td>Switch to cluster mode when memory passes 70% or traffic exceeds ~100k ops/s</td></tr>
+        <tr><td><strong>Cloudflare R2</strong><span class="svc">+ Cloudflare CDN</span></td><td>Raw uploads (private), HLS renditions, thumbnails, avatars</td><td>S3-compatible API with <strong>no egress fees</strong>. For a video app, egress is the largest bill.</td><td><span class="pill now">DAY 1</span></td><td>Doesn't need replacing; it scales with use</td></tr>
+        <tr><td><strong>Search</strong><span class="svc">Postgres FTS → Typesense → OpenSearch</span></td><td>Reels by caption/hashtag, places, creators, agencies</td><td>Typo tolerance and geo filters. Kept in sync from Postgres by the indexer, so it's a read copy (CQRS).</td><td><span class="pill">GROWTH</span></td><td>Move off Postgres FTS when you need typo tolerance or search p95 goes over 200 ms</td></tr>
+        <tr><td><strong>Analytics</strong><span class="svc">PostHog → ClickHouse</span></td><td>Watch time, completion rate, creator stats, booking funnel</td><td>Columnar storage scans billions of events in seconds and keeps reporting load off Postgres</td><td><span class="pill">GROWTH</span></td><td>Move to ClickHouse when PostHog costs more than ~$300/mo or you need custom creator dashboards</td></tr>
+        <tr><td><strong>ScyllaDB</strong><span class="svc">or Cassandra / Keyspaces</span></td><td>Raw like/view/comment events at very large scale</td><td>Designed for very high write volumes (heavy append-only writes)</td><td><span class="pill later">LATER</span></td><td>Only if engagement writes pass ~20k/s or that table nears a billion rows</td></tr>
+        <tr><td><strong>Queue</strong><span class="svc">BullMQ → SQS → Kafka/Redpanda</span></td><td>Transcode jobs, domain events, notifications, payout jobs</td><td>Separates slow work from the request path; failed jobs retry and then go to a DLQ</td><td><span class="pill now">DAY 1</span></td><td>Move to Kafka when 5+ consumers need the same stream or you need to replay events</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section aria-labelledby="cache-h">
+  <h2 id="cache-h">Where caching happens</h2>
+  <p class="sub">Four layers. Each request should stop at the first one that has the answer.</p>
+  <div class="layers">
+    <div class="layer"><div class="k">L1 · DEVICE</div><h4>App cache</h4><p>React Query caches API responses. The player prefetches the next 2 reels' first segments, so swipes start instantly.</p><div class="hit">TTL: session · cost $0</div></div>
+    <div class="layer"><div class="k">L2 · EDGE</div><h4>Cloudflare CDN</h4><p>HLS segments, thumbnails, images. Content-hashed URLs with <code>Cache-Control: immutable</code>. Public explore/trip pages cached for 60 s.</p><div class="hit">target hit ratio ≥ 95%</div></div>
+    <div class="layer"><div class="k">L3 · APP</div><h4>Redis</h4><p>Cache-aside for feeds, reel cards, trip details and counters. Delete the key when the data is written; add TTL jitter so many keys don't expire at once.</p><div class="hit">target hit ratio ≥ 90%</div></div>
+    <div class="layer"><div class="k">L4 · DATABASE</div><h4>Replicas + buffer pool</h4><p>Read replicas take feed rebuilds and explore queries. Size the instance so the working set fits in RAM.</p><div class="hit">primary: writes + money only</div></div>
+  </div>
+</section>
+
+<section aria-labelledby="cost-h">
+  <h2 id="cost-h">Estimated monthly cost</h2>
+  <p class="sub">Infrastructure only, in USD at list prices for ap-south-1 and Cloudflare. INR at ₹88/$. Startup credits (AWS Activate, Cloudflare for Startups) can cover the first year.</p>
+  <div class="stages">
+    <div class="stage"><div class="k">LAUNCH · ≤10K MAU</div><div class="big">~$165<span style="font-size:16px;color:var(--muted)">/mo</span></div><div class="inr">≈ ₹14,500 / month</div><ul><li>1M reel views, 3k uploads / mo</li><li>~150 GB video stored</li><li>~300 bookings / mo</li></ul></div>
+    <div class="stage"><div class="k">GROWTH · ~100K MAU</div><div class="big">~$1,300<span style="font-size:16px;color:var(--muted)">/mo</span></div><div class="inr">≈ ₹1.15 lakh / month</div><ul><li>15M views, 30k uploads / mo</li><li>~2 TB video stored</li><li>~5k bookings / mo</li></ul></div>
+    <div class="stage"><div class="k">SCALE · ~1M MAU</div><div class="big">~$8,950<span style="font-size:16px;color:var(--muted)">/mo</span></div><div class="inr">≈ ₹7.9 lakh / month · $0.045 per 1k views</div><ul><li>200M views, 300k uploads / mo</li><li>~25 TB video stored</li><li>~60k bookings / mo</li></ul></div>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Component</th><th>Launch</th><th class="n">$/mo</th><th>Growth</th><th class="n">$/mo</th><th>Scale</th><th class="n">$/mo</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Edge, WAF, CDN</strong></td><td>Cloudflare Free</td><td class="n">0</td><td>Cloudflare Pro</td><td class="n">25</td><td>Cloudflare Business</td><td class="n">250</td></tr>
+        <tr><td><strong>Video storage</strong></td><td>R2 · 150 GB</td><td class="n">3</td><td>R2 · 2 TB + ops</td><td class="n">40</td><td>R2 · 25 TB + ops</td><td class="n">430</td></tr>
+        <tr><td><strong>Transcoding</strong></td><td>FFmpeg · Fargate Spot</td><td class="n">5</td><td>FFmpeg · Fargate Spot</td><td class="n">25</td><td>FFmpeg · Fargate Spot</td><td class="n">200</td></tr>
+        <tr><td><strong>API compute</strong></td><td>2 × Fargate ARM 1 vCPU</td><td class="n">60</td><td>4–8 tasks, autoscaled</td><td class="n">230</td><td>~20 tasks + Savings Plan</td><td class="n">1,200</td></tr>
+        <tr><td><strong>Load balancer</strong></td><td>ALB</td><td class="n">20</td><td>ALB</td><td class="n">35</td><td>ALB</td><td class="n">120</td></tr>
+        <tr><td><strong>Network / NAT</strong></td><td>NAT instance (t4g.nano)</td><td class="n">5</td><td>NAT gateway + VPC endpoints</td><td class="n">40</td><td>NAT + data transfer</td><td class="n">250</td></tr>
+        <tr><td><strong>PostgreSQL</strong></td><td>RDS t4g.small, single-AZ</td><td class="n">35</td><td>m7g.large Multi-AZ + replica</td><td class="n">400</td><td>r7g.2xl Multi-AZ + 2 replicas</td><td class="n">2,100</td></tr>
+        <tr><td><strong>Redis / Valkey</strong></td><td>t4g.micro</td><td class="n">12</td><td>t4g.medium primary + replica</td><td class="n">95</td><td>3-shard cluster, replicas</td><td class="n">700</td></tr>
+        <tr><td><strong>Search</strong></td><td>Postgres full-text</td><td class="n">0</td><td>Typesense Cloud</td><td class="n">60</td><td>OpenSearch · 3 nodes</td><td class="n">450</td></tr>
+        <tr><td><strong>Queue / events</strong></td><td>BullMQ on Redis</td><td class="n">0</td><td>SQS</td><td class="n">5</td><td>Redpanda / MSK</td><td class="n">400</td></tr>
+        <tr><td><strong>Analytics</strong></td><td>PostHog free tier</td><td class="n">0</td><td>PostHog (sampled)</td><td class="n">100</td><td>ClickHouse Cloud</td><td class="n">500</td></tr>
+        <tr><td><strong>Wide-column store</strong></td><td>not needed</td><td class="n">0</td><td>not needed</td><td class="n">0</td><td>ScyllaDB Cloud (if triggered)</td><td class="n">600</td></tr>
+        <tr><td><strong>SMS, email, push</strong></td><td>~5k OTP SMS · FCM free</td><td class="n">15</td><td>~60k SMS · SES</td><td class="n">140</td><td>~500k SMS · SES</td><td class="n">1,150</td></tr>
+        <tr><td><strong>Observability</strong></td><td>Grafana + Sentry free</td><td class="n">0</td><td>Sentry Team + Grafana</td><td class="n">80</td><td>paid tiers</td><td class="n">400</td></tr>
+        <tr><td><strong>CI/CD, ECR, logs, backups</strong></td><td>GitHub Actions free</td><td class="n">10</td><td></td><td class="n">40</td><td></td><td class="n">200</td></tr>
+        <tr class="total"><td>Total</td><td></td><td class="n">$165</td><td></td><td class="n">$1,315</td><td></td><td class="n">$8,950</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Not included: Razorpay fees (about 2% per transaction + GST, deducted from each payment rather than billed as infrastructure) and app store fees. Estimates are ±25%; check the AWS, Cloudflare and Razorpay pricing pages before committing. Reserved instances or Savings Plans cut the RDS, Redis and compute lines by 30–40% at Growth and Scale.</p>
+  <div class="callouts">
+    <div class="callout a"><h4>Why R2 + FFmpeg over Mux or Stream</h4><p>Managed video services bill per minute watched. At 200M views × ~30 s that's ~100M minutes, about $100k/mo at $1 per 1,000 minutes. R2 + CDN delivery costs about $430. Managed transcoding (MediaConvert) would be ~$5k/mo against ~$200 for Spot FFmpeg.</p></div>
+    <div class="callout b"><h4>Biggest line to watch: SMS OTP</h4><p>At scale, OTP SMS costs more than Redis. Offer WhatsApp OTP, Google/Apple sign-in or email magic links first, use SMS as the fallback, and rate-limit OTP requests per number.</p></div>
+    <div class="callout c"><h4>Start as one deployable</h4><p>Keep the nine services as modules in one Node.js app with clear boundaries. Split out Media and Payments only when they need to scale or deploy separately. That saves a service mesh and a platform engineer.</p></div>
+  </div>
+</section>
+
+<section aria-labelledby="concepts-h">
+  <h2 id="concepts-h">System design concepts in use</h2>
+  <p class="sub">Where each one appears in this design.</p>
+  <div class="concepts">
+    <div class="cgroup"><h4>Traffic &amp; scale</h4><dl>
+      <dt>CDN + edge caching</dt><dd>Video and images served from Cloudflare points of presence in India.</dd>
+      <dt>Rate limiting (token bucket)</dt><dd>At the edge per IP, and in Redis per user/route. Stricter on OTP and booking.</dd>
+      <dt>Load balancing + horizontal autoscaling</dt><dd>ALB across 2 AZs. ECS scales on CPU and request count.</dd>
+      <dt>Stateless services</dt><dd>Sessions are JWTs plus a Redis refresh-token store, so any task can serve any request.</dd>
+    </dl></div>
+    <div class="cgroup"><h4>Data</h4><dl>
+      <dt>Cache-aside with TTL jitter</dt><dd>Read Redis, fall back to the DB, write back. Delete the key on update.</dd>
+      <dt>Read replicas + connection pooling</dt><dd>PgBouncer stops autoscaled tasks running out of DB connections.</dd>
+      <dt>CQRS</dt><dd>Search and analytics are read copies built from events, apart from the main database.</dd>
+      <dt>Partitioning → sharding</dt><dd>Partition bookings and events by month first. Shard by user_id only after 1M+ MAU.</dd>
+      <dt>Hybrid feed fan-out</dt><dd>Fan-out on write for most creators, fan-out on read for very large ones.</dd>
+    </dl></div>
+    <div class="cgroup"><h4>Reliability &amp; money</h4><dl>
+      <dt>Idempotency keys</dt><dd>On booking creation and webhook handling, so retries never charge twice.</dd>
+      <dt>Distributed lock with TTL</dt><dd>Redis seat hold that expires on its own after 10 minutes.</dd>
+      <dt>Transactional outbox + saga</dt><dd>Events commit in the same transaction as the booking. Failed payments trigger compensating steps.</dd>
+      <dt>Retries, backoff, DLQ, circuit breaker</dt><dd>Around Razorpay, SMS and FCM calls, so a slow provider can't take the API down.</dd>
+      <dt>Multi-AZ + point-in-time recovery</dt><dd>RDS failover in under 2 min. 7–35 days of PITR backups.</dd>
+    </dl></div>
+    <div class="cgroup"><h4>Media</h4><dl>
+      <dt>Presigned direct uploads</dt><dd>Clients upload straight to R2, so API servers never buffer 200 MB files.</dd>
+      <dt>Adaptive bitrate (HLS)</dt><dd>Three renditions, so a reel plays on 4G in Spiti as well as on Wi-Fi.</dd>
+      <dt>Spot workers</dt><dd>Transcode jobs can be retried, so cheap preemptible capacity is safe.</dd>
+    </dl></div>
+    <div class="cgroup"><h4>Security</h4><dl>
+      <dt>Short-lived JWT + refresh rotation</dt><dd>15-min access tokens. Refresh tokens are revocable in Redis.</dd>
+      <dt>Card data stays with Razorpay</dt><dd>Card data never touches your servers, so the PCI DSS burden stays with Razorpay.</dd>
+      <dt>Webhook HMAC + least-privilege IAM</dt><dd>Signed callbacks only. Each service gets only the permissions it needs.</dd>
+    </dl></div>
+    <div class="cgroup"><h4>Operations</h4><dl>
+      <dt>Observability (logs, metrics, traces)</dt><dd>OpenTelemetry trace IDs from the gateway to the worker.</dd>
+      <dt>Blue/green deploys + feature flags</dt><dd>Ship safely and roll back in one click.</dd>
+      <dt>Infrastructure as code</dt><dd>Terraform, so staging and production stay identical.</dd>
+    </dl></div>
+  </div>
+</section>
+
+<section aria-labelledby="path-h">
+  <h2 id="path-h">From today's codebase to this design</h2>
+  <p class="sub">The current backend is Express + MongoDB on Vercel, with reels saved to a local <code>uploads/</code> folder by multer. In order:</p>
+  <div class="two">
+    <ol class="steps">
+      <li><div><strong>Move reel uploads to R2 with presigned URLs</strong><span>Vercel's filesystem is temporary, so files in <code>uploads/reels</code> are lost on redeploy. This is the most urgent fix.</span></div></li>
+      <li><div><strong>Add a transcode worker and serve HLS through the CDN</strong><span>Replace raw MP4 playback, which cuts startup time and data use on mobile.</span></div></li>
+      <li><div><strong>Move the API from Vercel functions to ECS Fargate</strong><span>Long-lived processes keep DB pools warm and can run BullMQ workers. The Express code moves as-is.</span></div></li>
+      <li><div><strong>Put bookings and payments in PostgreSQL first</strong><span>Then move users, reels and trips over in stages. MongoDB transactions can work as a stopgap, but row locks, constraints and the ledger fit Postgres better.</span></div></li>
+      <li><div><strong>Add Redis for feeds, holds and rate limits, then Razorpay webhooks + outbox</strong><span>After this, the booking flow can't double-sell and the feed reads from cache.</span></div></li>
+    </ol>
+    <div class="tbl">
+      <table>
+        <thead><tr><th>Target</th><th class="n">Launch</th><th class="n">Scale</th></tr></thead>
+        <tbody>
+          <tr><td>Feed API p95</td><td class="n">&lt; 250 ms</td><td class="n">&lt; 150 ms</td></tr>
+          <tr><td>Reel start time (time to first frame)</td><td class="n">&lt; 1.5 s</td><td class="n">&lt; 800 ms</td></tr>
+          <tr><td>Upload → ready</td><td class="n">&lt; 2 min</td><td class="n">&lt; 60 s</td></tr>
+          <tr><td>Booking API availability</td><td class="n">99.5%</td><td class="n">99.95%</td></tr>
+          <tr><td>Double-sold seats</td><td class="n">0</td><td class="n">0</td></tr>
+          <tr><td>RPO / RTO (database)</td><td class="n">5 min / 1 h</td><td class="n">1 min / 15 min</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="min-h">
+  <h2 id="min-h">Minimum running cost by user tier</h2>
+  <p class="sub">The leanest setup that still runs every feature (reels, uploads, bookings, payments) safely at each size. "Users" means monthly active users (MAU). The earlier cost table has more headroom; this one is the floor. USD per month, INR at ₹88/$.</p>
+
+  <div class="tiers">
+    <div class="tier"><div class="k">TIER 1 · 100–1K USERS</div><div class="big">~$23<span>/mo</span></div><div class="inr">≈ ₹2,000 · $0.02 per user</div>
+      <dl><dt>Expected DAU</dt><dd>30–300</dd><dt>Supports up to</dt><dd><strong>~1,000 DAU</strong></dd><dt>Peak load</dt><dd>~5 req/s</dd><dt>Reels stored</dt><dd>a few hundred</dd><dt>Reel views / day</dt><dd>~9k</dd></dl></div>
+    <div class="tier"><div class="k">TIER 2 · 1K–10K USERS</div><div class="big">~$82<span>/mo</span></div><div class="inr">≈ ₹7,200 · $0.008 per user</div>
+      <dl><dt>Expected DAU</dt><dd>300–3,000</dd><dt>Supports up to</dt><dd><strong>~5,000 DAU</strong></dd><dt>Peak load</dt><dd>~25 req/s</dd><dt>Reels stored</dt><dd>~5k</dd><dt>Reel views / day</dt><dd>~90k</dd></dl></div>
+    <div class="tier"><div class="k">TIER 3 · 10K–100K USERS</div><div class="big">~$520<span>/mo</span></div><div class="inr">≈ ₹46,000 · $0.005 per user</div>
+      <dl><dt>Expected DAU</dt><dd>3k–30k</dd><dt>Supports up to</dt><dd><strong>~40,000 DAU</strong></dd><dt>Peak load</dt><dd>~200 req/s</dd><dt>Reels stored</dt><dd>~50k</dd><dt>Reel views / day</dt><dd>~900k</dd></dl></div>
+    <div class="tier"><div class="k">TIER 4 · 100K–1M USERS</div><div class="big">~$4,130<span>/mo</span></div><div class="inr">≈ ₹3.6 lakh · $0.004 per user</div>
+      <dl><dt>Expected DAU</dt><dd>30k–300k</dd><dt>Supports up to</dt><dd><strong>~350,000 DAU</strong></dd><dt>Peak load</dt><dd>~1,750 req/s</dd><dt>Reels stored</dt><dd>~300k+</dd><dt>Reel views / day</dt><dd>~9M</dd></dl></div>
+  </div>
+
+  <div class="tbl">
+    <table class="mintbl">
+      <thead><tr><th>Section</th><th>Tier 1 · 100–1k</th><th>Tier 2 · 1k–10k</th><th>Tier 3 · 10k–100k</th><th>Tier 4 · 100k–1M</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Edge, WAF, CDN</strong></td><td><b class="amt">$0</b><span class="svc">Cloudflare Free</span></td><td><b class="amt">$0</b><span class="svc">Cloudflare Free</span></td><td><b class="amt">$25</b><span class="svc">Cloudflare Pro (WAF rules)</span></td><td><b class="amt">$250</b><span class="svc">Cloudflare Business</span></td></tr>
+        <tr><td><strong>Video storage</strong></td><td><b class="amt">$0</b><span class="svc">R2 free tier (≤10 GB; raw deleted after transcode)</span></td><td><b class="amt">$2</b><span class="svc">R2 · ~75 GB</span></td><td><b class="amt">$16</b><span class="svc">R2 · ~750 GB + ops</span></td><td><b class="amt">$285</b><span class="svc">R2 · ~15 TB + ops</span></td></tr>
+        <tr><td><strong>Transcoding</strong></td><td><b class="amt">$0</b><span class="svc">FFmpeg on the API server</span></td><td><b class="amt">$3</b><span class="svc">Fargate Spot, on demand</span></td><td><b class="amt">$15</b><span class="svc">Fargate Spot workers</span></td><td><b class="amt">$150</b><span class="svc">Fargate Spot workers</span></td></tr>
+        <tr><td><strong>API compute</strong></td><td><b class="amt">$13</b><span class="svc">1× EC2 t4g.small (API + Redis + worker)</span></td><td><b class="amt">$26</b><span class="svc">2× EC2 t4g.small</span></td><td><b class="amt">$120</b><span class="svc">2–4 Fargate ARM tasks, autoscaled</span></td><td><b class="amt">$700</b><span class="svc">10–20 Fargate tasks + Savings Plan</span></td></tr>
+        <tr><td><strong>Load balancing</strong></td><td><b class="amt">$0</b><span class="svc">Cloudflare proxy → one server</span></td><td><b class="amt">$5</b><span class="svc">Cloudflare Load Balancing</span></td><td><b class="amt">$20</b><span class="svc">AWS ALB</span></td><td><b class="amt">$60</b><span class="svc">AWS ALB</span></td></tr>
+        <tr><td><strong>Network</strong></td><td><b class="amt">$4</b><span class="svc">1 public IPv4</span></td><td><b class="amt">$7</b><span class="svc">2 public IPv4</span></td><td><b class="amt">$8</b><span class="svc">NAT instance (t4g.nano)</span></td><td><b class="amt">$150</b><span class="svc">NAT + data transfer</span></td></tr>
+        <tr><td><strong>PostgreSQL</strong></td><td><b class="amt">$0</b><span class="svc">Neon free tier (0.5 GB)</span></td><td><b class="amt">$16</b><span class="svc">RDS t4g.micro, single-AZ</span></td><td><b class="amt">$125</b><span class="svc">RDS t4g.medium Multi-AZ</span></td><td><b class="amt">$875</b><span class="svc">r7g.xlarge Multi-AZ (reserved) + 1 replica</span></td></tr>
+        <tr><td><strong>Redis + queue</strong></td><td><b class="amt">$0</b><span class="svc">Redis in Docker on the server · BullMQ</span></td><td><b class="amt">$11</b><span class="svc">ElastiCache t4g.micro · BullMQ</span></td><td><b class="amt">$47</b><span class="svc">t4g.small + replica · SQS</span></td><td><b class="amt">$390</b><span class="svc">2-shard cluster · SQS</span></td></tr>
+        <tr><td><strong>Search</strong></td><td><b class="amt">$0</b><span class="svc">Postgres full-text</span></td><td><b class="amt">$0</b><span class="svc">Postgres full-text</span></td><td><b class="amt">$15</b><span class="svc">Typesense, self-hosted</span></td><td><b class="amt">$250</b><span class="svc">OpenSearch · 2 nodes</span></td></tr>
+        <tr><td><strong>Analytics</strong></td><td><b class="amt">$0</b><span class="svc">PostHog free</span></td><td><b class="amt">$0</b><span class="svc">PostHog free</span></td><td><b class="amt">$25</b><span class="svc">PostHog, sampled</span></td><td><b class="amt">$200</b><span class="svc">ClickHouse Cloud (basic)</span></td></tr>
+        <tr><td><strong>SMS, email, push</strong></td><td><b class="amt">$2</b><span class="svc">Google/Apple sign-in · email OTP · FCM</span></td><td><b class="amt">$6</b><span class="svc">SMS as fallback only</span></td><td><b class="amt">$55</b><span class="svc">~20k SMS · SES</span></td><td><b class="amt">$500</b><span class="svc">~200k SMS · SES</span></td></tr>
+        <tr><td><strong>Observability</strong></td><td><b class="amt">$0</b><span class="svc">Sentry + Grafana free</span></td><td><b class="amt">$0</b><span class="svc">Sentry + Grafana free</span></td><td><b class="amt">$26</b><span class="svc">Sentry Team</span></td><td><b class="amt">$200</b><span class="svc">paid tiers</span></td></tr>
+        <tr><td><strong>Backups, logs, domain</strong></td><td><b class="amt">$4</b><span class="svc">EBS snapshots · domain</span></td><td><b class="amt">$6</b><span class="svc"></span></td><td><b class="amt">$23</b><span class="svc">+ ECR, CloudWatch</span></td><td><b class="amt">$120</b><span class="svc"></span></td></tr>
+        <tr class="total"><td>Total / month</td><td><b class="amt">$23</b><span class="svc">≈ ₹2,000</span></td><td><b class="amt">$82</b><span class="svc">≈ ₹7,200</span></td><td><b class="amt">$520</b><span class="svc">≈ ₹46,000</span></td><td><b class="amt">$4,130</b><span class="svc">≈ ₹3.6 lakh</span></td></tr>
+        <tr class="cap"><td><strong>Supports up to</strong></td><td>~1,000 DAU</td><td>~5,000 DAU</td><td>~40,000 DAU</td><td>~350,000 DAU</td></tr>
+        <tr class="cap"><td><strong>Move up when</strong></td><td>server CPU &gt; 60% at peak, or DB nears 0.5 GB</td><td>DAU passes ~4k, or you need zero-downtime deploys</td><td>DB CPU &gt; 60%, or Redis memory &gt; 70%</td><td>DAU nears 300k: add Kafka, ScyllaDB and more replicas (see the earlier table)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callouts">
+    <div class="callout c"><h4>How DAU capacity was worked out</h4><p>Each daily user is assumed to watch ~30 reels and make ~120 API calls a day, with 15% of a day's traffic in the busiest hour. That gives peak req/s ≈ DAU × 0.005. Video bytes come from the CDN, so they don't count against the servers.</p></div>
+    <div class="callout b"><h4>The trade-offs at Tier 1</h4><p>One server means a few minutes of downtime on deploys or failure, and no automatic failover. That's fine for a beta with under 1k users. Keep Neon's point-in-time restore and daily EBS snapshots switched on.</p></div>
+    <div class="callout a"><h4>Not included</h4><p>Razorpay's ~2% per transaction (deducted from payments), Apple's $99/yr and Google Play's $25 one-time developer fees, and your team's time. Free tiers and prices change, so treat these as ±25% and check before committing.</p></div>
+  </div>
+</section>
+
+</div>
+<script>
+(function(){
+  var fig=document.getElementById('fig');
+  var btns=fig.querySelectorAll('.bar button');
+  function set(f){
+    fig.setAttribute('data-flow',f);
+    document.body.setAttribute('data-flow',f);
+    btns.forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.f===f));});
+  }
+  btns.forEach(function(b){b.addEventListener('click',function(){set(b.dataset.f);});});
+})();
+</script>
+</body>
+</html>
