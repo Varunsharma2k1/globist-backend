@@ -1,11 +1,15 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const env = require('../../config/env');
 
 const userSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   phone: { type: String, unique: true, sparse: true, trim: true },
   email: { type: String, unique: true, sparse: true, trim: true, lowercase: true },
-  password: { type: String, required: true },
+  // Google-only accounts have no password.
+  password: { type: String, required: function () { return !this.googleId; } },
+  googleId: { type: String, unique: true, sparse: true },
+  authProvider: { type: String, enum: ['email', 'google'], default: 'email' },
   role: { type: String, enum: ['traveler', 'creator', 'agency'], default: 'traveler' },
   // True for brand-new accounts until they pick traveler/creator/agency.
   // Defaults to false so pre-existing (seeded) users aren't prompted.
@@ -25,8 +29,10 @@ const userSchema = new mongoose.Schema({
   },
   wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Trip' }],
   isVerified: { type: Boolean, default: false },
-  refreshToken: { type: String },
   otpCode: { type: String },
+  // Password reset by emailed code: only an HMAC of the code is stored.
+  passwordReset: { codeHash: String, expiresAt: Date, attempts: { type: Number, default: 0 } },
+  passwordChangedAt: { type: Date },
   otpExpiry: { type: Date },
   // FCM device tokens for push (notifications module owns these).
   deviceTokens: [{ token: String, platform: { type: String, enum: ['android', 'ios', 'web'] }, updatedAt: Date }]
@@ -34,14 +40,15 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before save
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  const salt = await bcrypt.genSalt(10);
+  if (!this.password || !this.isModified('password')) return next();
+  const salt = await bcrypt.genSalt(env.auth.bcryptRounds);
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
 
 // Compare password
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  if (!this.password) return false; // Google-only account
   return bcrypt.compare(candidatePassword, this.password);
 };
 

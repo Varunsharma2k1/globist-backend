@@ -18,7 +18,9 @@ function getSes() {
 async function sendEmail({ to, subject, text, html }) {
   const client = getSes();
   if (!client) {
-    logger.info('[email:dev]', { to, subject });
+    // Dev only: print the body so codes can be tested without SES. Never in production.
+    if (env.isProd) throw new Error('Email is not configured (SES)');
+    logger.info('[email:dev]', { to, subject, text });
     return { mock: true };
   }
   const { SendEmailCommand } = require('@aws-sdk/client-sesv2');

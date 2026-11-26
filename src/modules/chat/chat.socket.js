@@ -16,9 +16,7 @@
  *   presence          { userId, online }
  */
 const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-const User = require('../users/user.model');
-const { JWT_SECRET } = require('../../shared/middleware/auth');
+const { userFromToken } = require('../../shared/middleware/auth');
 const chat = require('./chat.service');
 const { newBullConnection, enabled: redisEnabled } = require('../../infra/redis');
 
@@ -42,10 +40,9 @@ function attachSocket(httpServer, { origins }) {
     try {
       const token = socket.handshake.auth?.token;
       if (!token) return next(new Error('unauthorized'));
-      const { userId } = jwt.verify(token, JWT_SECRET);
-      const user = await User.findById(userId).select('_id name');
-      if (!user) return next(new Error('unauthorized'));
+      const { user, sid } = await userFromToken(token);
       socket.data.userId = String(user._id);
+      socket.data.sid = sid;
       next();
     } catch {
       next(new Error('unauthorized'));
@@ -55,6 +52,7 @@ function attachSocket(httpServer, { origins }) {
   io.on('connection', (socket) => {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`);
+    socket.join(`session:${socket.data.sid}`); // kicked when that session is revoked
     const count = (onlineCounts.get(userId) || 0) + 1;
     onlineCounts.set(userId, count);
     if (count === 1) socket.broadcast.emit('presence', { userId, online: true });

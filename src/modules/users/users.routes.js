@@ -8,7 +8,7 @@ const { auth } = require('../../shared/middleware/auth');
 router.get('/profile', auth, async (req, res, next) => {
   try {
     const user = await User.findById(req.user._id)
-      .select('-password -refreshToken -otpCode -otpExpiry')
+      .select('-password -refreshToken -otpCode -otpExpiry -passwordReset -googleId')
       .populate('wishlist');
     res.json(user);
   } catch (error) {
@@ -29,7 +29,7 @@ router.put('/profile', auth, async (req, res, next) => {
     }
 
     const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true })
-      .select('-password -refreshToken -otpCode -otpExpiry');
+      .select('-password -refreshToken -otpCode -otpExpiry -passwordReset -googleId');
     
     res.json(user);
   } catch (error) {

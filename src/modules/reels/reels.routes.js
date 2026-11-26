@@ -4,6 +4,7 @@ const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
 const Reel = require('./reel.model');
+const { resolveAffiliation, agencyReels } = require('./reels.service');
 const User = require('../users/user.model');
 const { auth, optionalAuth } = require('../../shared/middleware/auth');
 
@@ -25,7 +26,7 @@ const upload = multer({
 });
 
 // POST /api/reels/upload — Upload a reel's video/photo file, returns its URL
-router.post('/upload', optionalAuth, upload.single('file'), async (req, res, next) => {
+router.post('/upload', auth, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
@@ -83,27 +84,20 @@ router.get('/trending', async (req, res, next) => {
 });
 
 // POST /api/reels — Post a new reel
-router.post('/', optionalAuth, async (req, res, next) => {
+router.post('/', auth, async (req, res, next) => {
   try {
-    const { caption, tags, location, isAffiliate, agencyId, bookingId, imageType, musicTitle, mediaUrl } = req.body;
+    // agencyId / isAffiliate from the client are ignored: tagging comes only from a verified booking.
+    const { caption, tags, location, bookingId, imageType, musicTitle, mediaUrl } = req.body || {};
 
-    // Use authenticated user or fall back to demo user
-    let postingUser = req.user;
-    if (!postingUser) {
-      postingUser = await User.findOne().sort({ createdAt: 1 });
-      if (!postingUser) {
-        return res.status(401).json({ message: 'No user available. Please sign up first.' });
-      }
-    }
+    const postingUser = req.user; // posting requires sign-in
+    const affiliation = await resolveAffiliation(postingUser, bookingId);
 
     const reel = new Reel({
       user: postingUser._id,
-      agency: agencyId || undefined,
-      booking: bookingId || undefined,
-      caption,
-      tags: tags || [],
-      location: location || '',
-      isAffiliate: isAffiliate || false,
+      ...affiliation,
+      caption: typeof caption === 'string' ? caption.slice(0, 2200) : '',
+      tags: Array.isArray(tags) ? tags.filter((t) => typeof t === 'string').slice(0, 30) : [],
+      location: typeof location === 'string' ? location.slice(0, 200) : '',
       imageType: imageType || 'mountain',
       mediaUrl: mediaUrl || '',
       musicTitle: musicTitle || '',
@@ -156,11 +150,8 @@ router.post('/:id/like', auth, async (req, res, next) => {
 // GET /api/reels/agency/:agencyId — Reels for a specific agency
 router.get('/agency/:agencyId', async (req, res, next) => {
   try {
-    const reels = await Reel.find({ agency: req.params.agencyId })
-      .populate('user', 'name explorerTier avatar')
-      .sort({ likes: -1 })
-      .limit(10);
-    res.json(reels);
+    if (!/^[a-f0-9]{24}$/.test(req.params.agencyId)) return res.json([]);
+    res.json(await agencyReels(req.params.agencyId));
   } catch (error) {
     next(error);
   }

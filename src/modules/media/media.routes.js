@@ -19,6 +19,7 @@ const { asyncHandler, HttpError } = require('../../shared/http');
 const storage = require('../../infra/storage');
 const { enqueue, QUEUES } = require('../../infra/queue');
 const Reel = require('../reels/reel.model');
+const { resolveAffiliation } = require('../reels/reels.service');
 
 const router = express.Router();
 const ALLOWED = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'image/jpeg': 'jpg', 'image/png': 'png' };
@@ -45,18 +46,18 @@ router.put('/local-upload/:bucket/*', asyncHandler(async (req, res) => {
 }));
 
 router.post('/reels', auth, asyncHandler(async (req, res) => {
-  const { key, caption, tags, location, agencyId, bookingId, imageType, musicTitle, isAffiliate } = req.body || {};
+  // agencyId / isAffiliate from the client are ignored: tagging comes only from a verified booking.
+  const { key, caption, tags, location, bookingId, imageType, musicTitle } = req.body || {};
   if (!key || !key.startsWith(`reels/${req.user._id}/`)) throw new HttpError(400, 'Invalid upload key');
   if (!(await storage.exists({ key, bucket: 'raw' }))) throw new HttpError(400, 'Upload not found — PUT the file first');
+  const affiliation = await resolveAffiliation(req.user, bookingId);
 
   const reel = await Reel.create({
     user: req.user._id,
-    agency: agencyId || undefined,
-    booking: bookingId || undefined,
-    caption: caption || '',
-    tags: Array.isArray(tags) ? tags : [],
-    location: location || '',
-    isAffiliate: Boolean(isAffiliate),
+    ...affiliation,
+    caption: typeof caption === 'string' ? caption.slice(0, 2200) : '',
+    tags: Array.isArray(tags) ? tags.filter((t) => typeof t === 'string').slice(0, 30) : [],
+    location: typeof location === 'string' ? location.slice(0, 200) : '',
     imageType: imageType || 'mountain',
     musicTitle: musicTitle || '',
     creatorHandle: `@${req.user.name.toLowerCase().replace(/\s+/g, '_')}`,

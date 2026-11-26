@@ -114,6 +114,17 @@ The old `POST /api/reels/upload` (multer) still works until the app moves over.
 
 Without `pay: true` the legacy instant-confirm flow still runs, so the current app keeps working.
 
+**Auth sessions** (`modules/auth/session.service.js`):
+- **Access token:** a JWT carrying `{userId, sid}`, valid 15 min (`ACCESS_TOKEN_TTL_SEC`). It is HS256 with the issuer and audience checked.
+- **Refresh token:** an opaque `<sessionId>.<256-bit secret>`. It is stored as a SHA-256 hash in the `sessions` collection and **rotated on every use**.
+- **Expiry:** sliding 90 days (`REFRESH_TOKEN_TTL_DAYS`), with a hard cap of 1 year (`SESSION_MAX_DAYS`).
+- **Reuse detection:** replaying a refresh token that was already rotated (outside a 60 s grace window) revokes the session.
+- **Revoking** a session (logout, logout-all, theft) writes `auth:revoked:<sid>` to the cache, so its access tokens die immediately, and disconnects its chat sockets.
+- **Routes:** `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/logout-all`, `GET /auth/sessions`, `DELETE /auth/sessions/:id`.
+- **Rate limits:** login is limited per IP and per email.
+- **App side:** tokens live only in SecureStore (`mobile/src/api/tokenStore.js`), and the API client refreshes them silently.
+- **Rule:** any future password change must call `sessions.revokeAllForUser(userId, { exceptSid })`.
+
 **Chat**: Socket.IO at `/socket.io`, with JWT in `auth.token` and per-user rooms. The Redis adapter switches on with `REDIS_URL`, so it works across many instances. Offline recipients get an FCM push.
 
 ## Running the pieces

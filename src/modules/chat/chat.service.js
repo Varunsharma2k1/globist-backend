@@ -16,6 +16,8 @@ const notifications = require('../notifications/notifications.service');
 
 let io = null;
 const setIO = (instance) => { io = instance; };
+/** Drops live sockets of a revoked session (works across instances via the Redis adapter). */
+const disconnectSession = (sid) => { io?.in(`session:${sid}`).disconnectSockets(true); };
 const emitToUser = (userId, event, payload) => {
   if (io) io.to(`user:${userId}`).emit(event, payload);
 };
@@ -210,6 +212,7 @@ async function unreadTotal(userId) {
 
 module.exports = {
   setIO,
+  disconnectSession,
   emitToUser,
   getConversationFor,
   listConversations,

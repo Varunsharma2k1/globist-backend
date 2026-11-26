@@ -40,11 +40,13 @@ const env = {
   publicBaseUrl: str('PUBLIC_BASE_URL', `http://localhost:${num('PORT', 5001)}`),
 
   auth: {
-    jwtSecret: str('JWT_SECRET', 'globist-secret-key-2024'),
-    jwtRefreshSecret: str('JWT_REFRESH_SECRET') || `${str('JWT_SECRET', 'globist-secret-key-2024')}-refresh`,
-    // HLD target is 15m once the app refreshes tokens; 7d keeps today's app working.
-    accessTtl: str('JWT_ACCESS_TTL', '7d'),
-    refreshTtl: str('JWT_REFRESH_TTL', '30d'),
+    jwtSecret: str('JWT_SECRET', 'triptape-dev-secret'),
+    // Access tokens are short; the app renews them silently with the refresh token.
+    accessTtlSec: num('ACCESS_TOKEN_TTL_SEC', 15 * 60),
+    // Refresh tokens: sliding window (renewed on use) + an absolute cap.
+    refreshTtlDays: num('REFRESH_TOKEN_TTL_DAYS', 90),
+    sessionMaxDays: num('SESSION_MAX_DAYS', 365),
+    bcryptRounds: num('BCRYPT_ROUNDS', 12),
     googleClientIds: list('GOOGLE_OAUTH_CLIENT_IDS'),
   },
 
@@ -106,8 +108,12 @@ const env = {
   seedOnEmpty: bool('SEED_ON_EMPTY', true),
 };
 
+env.auth.accessTtl = env.auth.accessTtlSec; // jsonwebtoken takes seconds
+
 const s = env.storage;
 env.features = {
+  googleSignIn: env.auth.googleClientIds.length > 0,
+  jwtSecret: env.auth.jwtSecret !== 'triptape-dev-secret',
   mongo: Boolean(env.mongo.uri),
   postgres: Boolean(env.postgres.url),
   redis: Boolean(env.redis.url),
@@ -123,7 +129,8 @@ env.features = {
 
 if (isProd) {
   const problems = [];
-  if (env.auth.jwtSecret === 'globist-secret-key-2024') problems.push('JWT_SECRET must be set');
+  if (env.auth.jwtSecret === 'triptape-dev-secret') problems.push('JWT_SECRET must be set');
+  else if (env.auth.jwtSecret.length < 32) problems.push('JWT_SECRET must be at least 32 characters');
   if (!env.mongo.uri) problems.push('MONGO_URI must be set (in-memory DB is dev-only)');
   if (problems.length) throw new Error(`[env] Production misconfigured:\n - ${problems.join('\n - ')}`);
 }
