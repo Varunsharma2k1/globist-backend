@@ -18,3 +18,7 @@ yarn-error.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Local media written by the dev storage fallback
+/uploads/raw
+/uploads/media

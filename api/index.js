@@ -1,23 +1,30 @@
-const app = require('../index');
-const { connectDB } = require('../config/db');
-const seedDatabase = require('../seed/seed');
+/**
+ * Vercel serverless entry. No WebSockets or background workers here: chat
+ * works over REST and jobs run inline. Production target is src/server.js
+ * on EC2/ECS (see docs/ARCHITECTURE.md).
+ */
+const app = require('../src/app');
+const { connectDB } = require('../src/infra/mongo');
+const { bootstrapData } = require('../src/seed/bootstrap');
+const workers = require('../src/workers');
 
-let isConnected = false;
+let ready = null;
 
 module.exports = async (req, res) => {
-  if (!isConnected) {
-    try {
+  if (!ready) {
+    ready = (async () => {
       await connectDB();
-      // Only seed if empty
-      const User = require('../models/User');
-      const count = await User.countDocuments();
-      if (count === 0) {
-        await seedDatabase();
-      }
-      isConnected = true;
-    } catch (e) {
-      console.error('API initialization error:', e);
-    }
+      await bootstrapData();
+      workers.registerAll();
+    })().catch((e) => {
+      ready = null;
+      throw e;
+    });
+  }
+  try {
+    await ready;
+  } catch (e) {
+    return res.status(503).json({ message: 'Service starting, retry shortly' });
   }
   return app(req, res);
 };

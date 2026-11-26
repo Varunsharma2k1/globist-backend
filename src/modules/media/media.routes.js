@@ -1,0 +1,78 @@
+/**
+ * Reels & media (HLD flow B): presigned direct upload -> reel PROCESSING ->
+ * transcode worker -> READY.
+ *
+ *   1. POST /api/media/upload-url { contentType }      -> { uploadUrl, key, headers }
+ *   2. PUT  <uploadUrl> (raw bytes, straight to R2; local disk in dev)
+ *   3. POST /api/media/reels { key, caption, ... }     -> reel { status: 'processing' }
+ *   4. worker transcodes; reel becomes 'ready' with hlsUrl/mediaUrl
+ */
+const express = require('express');
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const { pipeline } = require('stream/promises');
+const env = require('../../config/env');
+const { auth } = require('../../shared/middleware/auth');
+const rateLimit = require('../../shared/middleware/rateLimit');
+const { asyncHandler, HttpError } = require('../../shared/http');
+const storage = require('../../infra/storage');
+const { enqueue, QUEUES } = require('../../infra/queue');
+const Reel = require('../reels/reel.model');
+
+const router = express.Router();
+const ALLOWED = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'image/jpeg': 'jpg', 'image/png': 'png' };
+const MAX_BYTES = 200 * 1024 * 1024;
+
+router.post('/upload-url', auth, rateLimit({ name: 'upload', max: 30 }), asyncHandler(async (req, res) => {
+  const contentType = req.body?.contentType;
+  const ext = ALLOWED[contentType];
+  if (!ext) throw new HttpError(400, `contentType must be one of ${Object.keys(ALLOWED).join(', ')}`);
+  const key = `reels/${req.user._id}/${crypto.randomBytes(12).toString('hex')}.${ext}`;
+  res.json(await storage.createUploadUrl({ key, contentType, bucket: 'raw' }));
+}));
+
+// Dev-only stand-in for the R2 presigned PUT (disabled once R2 is configured).
+router.put('/local-upload/:bucket/*', asyncHandler(async (req, res) => {
+  if (env.features.storage || env.isProd) throw new HttpError(404, 'Not found');
+  const key = decodeURIComponent(req.params[0]);
+  if (!/^reels\/[a-f0-9]{24}\/[a-f0-9]{24}\.\w+$/.test(key)) throw new HttpError(400, 'Bad key');
+  if (Number(req.headers['content-length'] || 0) > MAX_BYTES) throw new HttpError(413, 'File too large');
+  const file = storage.localPath(req.params.bucket, key);
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  await pipeline(req, fs.createWriteStream(file));
+  res.status(200).json({ key });
+}));
+
+router.post('/reels', auth, asyncHandler(async (req, res) => {
+  const { key, caption, tags, location, agencyId, bookingId, imageType, musicTitle, isAffiliate } = req.body || {};
+  if (!key || !key.startsWith(`reels/${req.user._id}/`)) throw new HttpError(400, 'Invalid upload key');
+  if (!(await storage.exists({ key, bucket: 'raw' }))) throw new HttpError(400, 'Upload not found — PUT the file first');
+
+  const reel = await Reel.create({
+    user: req.user._id,
+    agency: agencyId || undefined,
+    booking: bookingId || undefined,
+    caption: caption || '',
+    tags: Array.isArray(tags) ? tags : [],
+    location: location || '',
+    isAffiliate: Boolean(isAffiliate),
+    imageType: imageType || 'mountain',
+    musicTitle: musicTitle || '',
+    creatorHandle: `@${req.user.name.toLowerCase().replace(/\s+/g, '_')}`,
+    creatorTier: req.user.explorerTier || 'bronze',
+    status: 'processing',
+    rawKey: key,
+  });
+  await enqueue(QUEUES.TRANSCODE, 'transcode', { reelId: String(reel._id), key });
+  res.status(201).json(reel);
+}));
+
+// GET /api/media/reels/:id/status — app polls until 'ready'
+router.get('/reels/:id/status', auth, asyncHandler(async (req, res) => {
+  const reel = await Reel.findOne({ _id: req.params.id, user: req.user._id }).select('status mediaUrl hlsUrl thumbnailUrl');
+  if (!reel) throw new HttpError(404, 'Reel not found');
+  res.json(reel);
+}));
+
+module.exports = router;
