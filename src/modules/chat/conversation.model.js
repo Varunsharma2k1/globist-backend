@@ -6,20 +6,23 @@ const mongoose = require('mongoose');
  * agency, `agency` records which agency the thread is about so the inbox can
  * show the agency's name instead of its owner account.
  */
-const conversationSchema = new mongoose.Schema({
-  participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }],
-  pairKey: { type: String, required: true, unique: true },
-  agency: { type: mongoose.Schema.Types.ObjectId, ref: 'Agency' },
-  lastMessage: {
-    text: String,
-    sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    createdAt: Date,
+const conversationSchema = new mongoose.Schema(
+  {
+    participants: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }],
+    pairKey: { type: String, required: true, unique: true },
+    agency: { type: mongoose.Schema.Types.ObjectId, ref: 'Agency' },
+    lastMessage: {
+      text: String,
+      sender: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      createdAt: Date,
+    },
+    // userId -> unread message count
+    unread: { type: Map, of: Number, default: {} },
+    // userId -> last time that user read the thread
+    lastReadAt: { type: Map, of: Date, default: {} },
   },
-  // userId -> unread message count
-  unread: { type: Map, of: Number, default: {} },
-  // userId -> last time that user read the thread
-  lastReadAt: { type: Map, of: Date, default: {} },
-}, { timestamps: true });
+  { timestamps: true }
+);
 
 conversationSchema.index({ participants: 1, updatedAt: -1 });
 

@@ -16,7 +16,11 @@ async function call(path, params) {
 }
 
 const autocomplete = (input, { sessionToken } = {}) =>
-  call('/place/autocomplete/json', { input, components: 'country:in', ...(sessionToken ? { sessiontoken: sessionToken } : {}) });
+  call('/place/autocomplete/json', {
+    input,
+    components: 'country:in',
+    ...(sessionToken ? { sessiontoken: sessionToken } : {}),
+  });
 
 const geocode = (address) => call('/geocode/json', { address, region: 'in' });
 

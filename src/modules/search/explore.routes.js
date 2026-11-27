@@ -15,24 +15,21 @@ router.get('/home-feed', async (req, res, next) => {
         .populate('agency', 'name location startingPrice rating imageType')
         .sort({ likes: -1 })
         .limit(6),
-      Agency.find({ isVerified: true })
-        .populate('region', 'name')
-        .sort({ rating: -1 })
-        .limit(6),
+      Agency.find({ isVerified: true }).populate('region', 'name').sort({ rating: -1 }).limit(6),
       // Static trending topics (could be a collection in production)
       Promise.resolve([
         { name: 'Local Hidden Gems', icon: '📍', count: '2.1M active explorers', bgColor: '#E6F1FB' },
         { name: 'Historic Expeditions', icon: '🏛️', count: '1.5M active explorers', bgColor: '#FEF0F0' },
         { name: 'Luxury Stays', icon: '⭐', count: '750K active explorers', bgColor: '#FFF3DC' },
-        { name: 'Treks', icon: '🥾', count: '750K active explorers', bgColor: '#EEEDFE' }
-      ])
+        { name: 'Treks', icon: '🥾', count: '750K active explorers', bgColor: '#EEEDFE' },
+      ]),
     ]);
 
     res.json({
       featuredRegions,
       trendingReels,
       popularAgencies,
-      trendingTopics
+      trendingTopics,
     });
   } catch (error) {
     next(error);
@@ -58,7 +55,7 @@ router.get('/search', async (req, res, next) => {
       Trip.find({ $or: [{ name: searchRegex }, { description: searchRegex }] })
         .populate('agency', 'name location')
         .populate('region', 'name')
-        .limit(10)
+        .limit(10),
     ]);
 
     res.json({ regions, agencies, trips });
@@ -74,7 +71,7 @@ router.get('/trending-topics', async (req, res, next) => {
       { name: 'Local Hidden Gems', icon: '📍', count: '2.1M active explorers', bgColor: '#E6F1FB' },
       { name: 'Historic Expeditions', icon: '🏛️', count: '1.5M active explorers', bgColor: '#FEF0F0' },
       { name: 'Luxury Stays', icon: '⭐', count: '750K active explorers', bgColor: '#FFF3DC' },
-      { name: 'Treks', icon: '🥾', count: '750K active explorers', bgColor: '#EEEDFE' }
+      { name: 'Treks', icon: '🥾', count: '750K active explorers', bgColor: '#EEEDFE' },
     ]);
   } catch (error) {
     next(error);

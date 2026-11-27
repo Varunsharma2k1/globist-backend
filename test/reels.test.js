@@ -35,16 +35,23 @@ const call = async (method, path, body, token) => {
 };
 let n = 0;
 async function newUser() {
-  const { data } = await call('POST', '/auth/signup', { name: 'R', email: `r${Date.now()}${n++}@t.dev`, password: 'reel-tester-1' });
+  const { data } = await call('POST', '/auth/signup', {
+    name: 'R',
+    email: `r${Date.now()}${n++}@t.dev`,
+    password: 'reel-tester-1',
+  });
   return data;
 }
 const oid = () => new mongoose.Types.ObjectId();
-async function bookingFor(userId, agency, status = 'confirmed') {
+// Trips are taggable only after they end, so test bookings default to a past trip.
+async function bookingFor(userId, agency, status = 'confirmed', checkOut = new Date(Date.now() - 86400000)) {
   const doc = new Booking({
     user: userId,
     trip: oid(),
     agency,
     status,
+    checkIn: new Date(Date.now() - 5 * 86400000),
+    checkOut,
     startDate: new Date(),
     travelersCount: 1,
     totalPrice: 1000,
@@ -100,14 +107,22 @@ test("agency profile lists only that agency's tagged tapes", async () => {
 test('live map stats: playable tapes and distinct locations', async () => {
   const { cache } = require('../src/infra/redis');
   await cache.del('reels:stats:v1');
-  const before = (await call('GET', '/reels/stats')).data;
+  const statsBefore = (await call('GET', '/reels/stats')).data;
   const me = await newUser();
   await post(me.token, { location: 'Manali' });
   await post(me.token, { location: '  manali ' }); // same spot
   await post(me.token, { location: 'Zanskar Valley' });
   await cache.del('reels:stats:v1');
-  const after = (await call('GET', '/reels/stats')).data;
-  assert.equal(after.tapes - before.tapes, 3);
-  assert.ok(after.spots - before.spots <= 2);
-  assert.ok(after.spots >= 2);
+  const statsAfter = (await call('GET', '/reels/stats')).data;
+  assert.equal(statsAfter.tapes - statsBefore.tapes, 3);
+  assert.ok(statsAfter.spots - statsBefore.spots <= 2);
+  assert.ok(statsAfter.spots >= 2);
+});
+
+test('a trip that has not ended yet cannot be tagged (protects against cancel-after-posting)', async () => {
+  const me = await newUser();
+  const upcoming = await bookingFor(me.user._id, oid(), 'confirmed', new Date(Date.now() + 7 * 86400000));
+  const res = await post(me.token, { bookingId: String(upcoming._id) });
+  assert.equal(res.status, 409);
+  assert.equal(res.data.code, 'TRIP_NOT_FINISHED');
 });

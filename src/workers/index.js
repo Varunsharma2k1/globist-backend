@@ -13,6 +13,7 @@ const { processTranscodeJob } = require('../modules/media/transcode.job');
 const { processNotifyJob } = require('../modules/notifications/notifications.service');
 const { flushCounters } = require('../modules/engagement/engagement.service');
 const payments = require('../modules/payments/payments.service');
+const bookings = require('../modules/booking/booking.service');
 
 const MAINTENANCE_EVERY_MS = 60 * 1000;
 
@@ -25,7 +26,8 @@ async function processEventJob({ name, data }) {
 async function processCountersJob() {
   const flushed = await flushCounters();
   const expired = await payments.expireStaleHolds();
-  if (flushed || expired) logger.debug('maintenance', { flushed, expired });
+  const completed = await bookings.completeFinishedTrips();
+  if (flushed || expired || completed) logger.debug('maintenance', { flushed, expired, completed });
 }
 
 let timer = null;
@@ -43,9 +45,17 @@ function registerAll() {
 /** Periodic counter flush + hold expiry (repeatable job with Redis, timer without). */
 async function scheduleMaintenance() {
   if (env.features.redis) {
-    await enqueue(QUEUES.COUNTERS, 'maintenance', {}, { repeat: { every: MAINTENANCE_EVERY_MS }, jobId: 'maintenance' });
+    await enqueue(
+      QUEUES.COUNTERS,
+      'maintenance',
+      {},
+      { repeat: { every: MAINTENANCE_EVERY_MS }, jobId: 'maintenance' }
+    );
   } else if (!timer) {
-    timer = setInterval(() => processCountersJob().catch((e) => logger.warn('maintenance failed', { err: e.message })), MAINTENANCE_EVERY_MS);
+    timer = setInterval(
+      () => processCountersJob().catch((e) => logger.warn('maintenance failed', { err: e.message })),
+      MAINTENANCE_EVERY_MS
+    );
     timer.unref();
   }
 }

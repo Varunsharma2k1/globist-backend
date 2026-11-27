@@ -33,7 +33,9 @@ async function sendPush(tokens, { title, body, data = {} }) {
     android: { priority: 'high', notification: { channelId: 'default' } },
   });
   const invalidTokens = res.responses
-    .map((r, i) => (!r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code || '') ? tokens[i] : null))
+    .map((r, i) =>
+      !r.success && /registration-token-not-registered|invalid-argument/.test(r.error?.code || '') ? tokens[i] : null
+    )
     .filter(Boolean);
   return { sent: res.successCount, invalidTokens };
 }

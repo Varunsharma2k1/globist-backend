@@ -25,7 +25,12 @@ const bool = (name, fallback = false) => {
 };
 const list = (name, fallback = []) => {
   const v = str(name);
-  return v ? v.split(',').map((s) => s.trim()).filter(Boolean) : fallback;
+  return v
+    ? v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : fallback;
 };
 
 const NODE_ENV = str('NODE_ENV', 'development');
@@ -34,7 +39,6 @@ const isProd = NODE_ENV === 'production';
 const env = {
   NODE_ENV,
   isProd,
-  isServerless: Boolean(process.env.VERCEL),
   port: num('PORT', 5001),
   corsOrigins: list('CLIENT_ORIGIN', ['http://localhost:5173', 'http://localhost:3000']),
   publicBaseUrl: str('PUBLIC_BASE_URL', `http://localhost:${num('PORT', 5001)}`),
@@ -106,11 +110,9 @@ const env = {
     authMax: num('RATE_LIMIT_AUTH_MAX', 20),
   },
   seedOnEmpty: bool('SEED_ON_EMPTY', true),
-  demo: {
-    // Demo shortcut: new bookings start as 'completed' so the "post a tape
-    // from your trip" flow can be tried right away. Never in production.
-    autoCompleteBookings: !isProd && bool('DEMO_AUTO_COMPLETE_BOOKINGS', true),
-  },
+  // Demo tools for showcasing the app (e.g. "Mark trip as completed").
+  // Always off in production, whatever the setting says.
+  demoTools: !isProd && bool('DEMO_TOOLS', true),
 };
 
 env.auth.accessTtl = env.auth.accessTtlSec; // jsonwebtoken takes seconds

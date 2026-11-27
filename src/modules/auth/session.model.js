@@ -16,7 +16,10 @@ const sessionSchema = new mongoose.Schema(
     expiresAt: { type: Date, required: true }, // sliding; renewed on each refresh
     absoluteExpiresAt: { type: Date, required: true }, // hard cap, never extended
     revokedAt: { type: Date },
-    revokeReason: { type: String, enum: ['logout', 'logout_all', 'revoked', 'reuse_detected', 'user_deleted', 'password_changed'] },
+    revokeReason: {
+      type: String,
+      enum: ['logout', 'logout_all', 'revoked', 'reuse_detected', 'user_deleted', 'password_changed'],
+    },
     device: {
       platform: String,
       name: String,

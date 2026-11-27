@@ -14,14 +14,14 @@ router.get('/', async (req, res, next) => {
     // If category is provided, find agencies in that category first
     if (category) {
       const categoryMap = {
-        'Treks': 'Treks',
+        Treks: 'Treks',
         'Luxury Stays': 'Luxury',
         'City Tours': 'City Tours',
-        'Adventure': 'Adventure',
+        Adventure: 'Adventure',
       };
       const dbCategory = categoryMap[category] || category;
       const agencyIds = await Agency.find({ categories: { $in: [dbCategory] } }).select('_id');
-      filter.agency = { $in: agencyIds.map(a => a._id) };
+      filter.agency = { $in: agencyIds.map((a) => a._id) };
     }
 
     let sortOption = { isFeatured: -1, activeUsers: -1 };
@@ -45,7 +45,10 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const trip = await Trip.findById(req.params.id)
-      .populate('agency', 'name description location rating reviewCount isVerified categories imageType startingPrice owner')
+      .populate(
+        'agency',
+        'name description location rating reviewCount isVerified categories imageType startingPrice owner'
+      )
       .populate('region', 'name');
 
     if (!trip) {

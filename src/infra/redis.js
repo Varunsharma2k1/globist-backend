@@ -105,7 +105,14 @@ const cache = {
       } while (cursor !== '0');
       return out;
     }
-    const re = new RegExp('^' + pattern.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+    const re = new RegExp(
+      '^' +
+        pattern
+          .split('*')
+          .map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+          .join('.*') +
+        '$'
+    );
     return [...mem.keys()].filter((k) => re.test(k) && memGet(k) != null);
   },
 };

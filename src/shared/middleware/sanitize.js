@@ -9,7 +9,13 @@ const MAX_DEPTH = 10;
 function clean(value, depth = 0) {
   if (!value || typeof value !== 'object' || depth > MAX_DEPTH) return;
   for (const key of Object.keys(value)) {
-    if (key.startsWith('$') || key.includes('.') || key === '__proto__' || key === 'constructor' || key === 'prototype') {
+    if (
+      key.startsWith('$') ||
+      key.includes('.') ||
+      key === '__proto__' ||
+      key === 'constructor' ||
+      key === 'prototype'
+    ) {
       delete value[key];
     } else {
       clean(value[key], depth + 1);

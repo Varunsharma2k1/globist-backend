@@ -31,10 +31,7 @@ async function seedDatabase() {
   const demoUser = await User.create(demoUserData);
   console.log(`  ✓ Demo user created: ${demoUser.name}`);
 
-  const agencies = await Agency.insertMany([
-    ...buildAgenciesPart1(regions),
-    ...buildAgenciesPart2(regions),
-  ]);
+  const agencies = await Agency.insertMany([...buildAgenciesPart1(regions), ...buildAgenciesPart2(regions)]);
   console.log(`  ✓ ${agencies.length} agencies created`);
 
   const trips = await Trip.insertMany([

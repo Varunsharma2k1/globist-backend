@@ -1,6 +1,5 @@
 # Dependencies
 /node_modules
-package-lock.json
 
 # Environment variables — never commit real values.
 # .env.example is intentionally NOT ignored — it documents the shape.

@@ -42,7 +42,6 @@ server/
 │   └── seed/                ← demo data
 ├── db/postgres/migrations/  ← SQL migrations (npm run db:migrate)
 ├── test/                    ← node:test (npm test)
-├── api/index.js             ← Vercel entry (no sockets/workers, REST only)
 └── docker-compose.yml       ← optional local Mongo/Postgres/Valkey/MinIO
 ```
 
@@ -65,6 +64,7 @@ Each module can be built by a different person at the same time. Fill in the own
 | `notifications` | Notifications (push/SMS/email) | `/api/notifications` | queue | |
 | `reviews` | Agency reviews (comments; verified-traveller badge from bookings) | `/api/reviews` | Mongo | |
 | `places` | Live map pins (tape counts per location; geocode cache) | `/api/places` | Mongo + geocoder | |
+| `support` | Problem reports from the app | `/api/support` | Mongo | |
 | `chat` | Chat (not in the HLD; Socket.IO) | `/api/chat` + `/socket.io` | Mongo | |
 | `health` | Ops | `/api/health` | — | |
 
@@ -143,7 +143,7 @@ Without `pay: true` the legacy instant-confirm flow still runs, so the current a
 ## Next steps (in HLD order)
 
 1. **R2 for uploads.** Set `R2_*` and point the app's post-reel flow at `/api/media/*`.
-2. **Move the API off Vercel to EC2 (Tier 1).** That gives WebSockets, workers and warm pools.
+2. **Hosting.** Runs on Render as a Docker web service (see `render.yaml`, `Dockerfile`). Move to EC2/ECS (Tier 1) when traffic needs it; the image is the same.
 3. **Bookings and payments to Postgres.** The schema is in `db/postgres/migrations/001_init.sql` (slots, bookings, payments, ledger, outbox). Swap the booking and payments services to `infra/postgres.tx` with `UPDATE trip_slots SET seats_left = seats_left - n WHERE seats_left >= n`.
 4. **Redis in production.** Shared caches, rate limits and holds, plus BullMQ workers.
 5. **Outbox relay worker**, then feed fan-out and the search indexer on the `events` queue.

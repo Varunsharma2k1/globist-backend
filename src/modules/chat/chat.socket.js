@@ -20,8 +20,7 @@ const { userFromToken } = require('../../shared/middleware/auth');
 const chat = require('./chat.service');
 const { newBullConnection, enabled: redisEnabled } = require('../../infra/redis');
 
-// userId -> number of open sockets (single-instance presence)
-const onlineCounts = new Map();
+const presence = require('../../shared/presence');
 
 function attachSocket(httpServer, { origins }) {
   const io = new Server(httpServer, {
@@ -53,9 +52,7 @@ function attachSocket(httpServer, { origins }) {
     const userId = socket.data.userId;
     socket.join(`user:${userId}`);
     socket.join(`session:${socket.data.sid}`); // kicked when that session is revoked
-    const count = (onlineCounts.get(userId) || 0) + 1;
-    onlineCounts.set(userId, count);
-    if (count === 1) socket.broadcast.emit('presence', { userId, online: true });
+    if (presence.connected(userId)) socket.broadcast.emit('presence', { userId, online: true });
 
     const handler = (fn) => async (payload, ack) => {
       const reply = typeof ack === 'function' ? ack : () => {};
@@ -67,36 +64,41 @@ function attachSocket(httpServer, { origins }) {
       }
     };
 
-    socket.on('message:send', handler(async ({ conversationId, text, clientId }) => {
-      const { message } = await chat.sendMessage(conversationId, userId, { text, clientId });
-      return { message };
-    }));
+    socket.on(
+      'message:send',
+      handler(async ({ conversationId, text, clientId }) => {
+        const { message } = await chat.sendMessage(conversationId, userId, { text, clientId });
+        return { message };
+      })
+    );
 
-    socket.on('conversation:read', handler(async ({ conversationId }) =>
-      chat.markRead(conversationId, userId)));
+    socket.on(
+      'conversation:read',
+      handler(async ({ conversationId }) => chat.markRead(conversationId, userId))
+    );
 
-    socket.on('typing', handler(async ({ conversationId, isTyping }) => {
-      const conv = await chat.getConversationFor(conversationId, userId);
-      for (const p of conv.participants) {
-        if (String(p._id) !== userId) {
-          chat.emitToUser(p._id, 'typing', { conversationId, userId, isTyping: !!isTyping });
+    socket.on(
+      'typing',
+      handler(async ({ conversationId, isTyping }) => {
+        const conv = await chat.getConversationFor(conversationId, userId);
+        for (const p of conv.participants) {
+          if (String(p._id) !== userId) {
+            chat.emitToUser(p._id, 'typing', { conversationId, userId, isTyping: !!isTyping });
+          }
         }
-      }
-      return {};
-    }));
+        return {};
+      })
+    );
 
-    socket.on('presence:query', handler(async ({ userIds = [] }) => ({
-      online: userIds.filter((id) => onlineCounts.get(String(id)) > 0),
-    })));
+    socket.on(
+      'presence:query',
+      handler(async ({ userIds = [] }) => ({
+        online: (Array.isArray(userIds) ? userIds.slice(0, 200) : []).filter(presence.isOnline),
+      }))
+    );
 
     socket.on('disconnect', () => {
-      const left = (onlineCounts.get(userId) || 1) - 1;
-      if (left <= 0) {
-        onlineCounts.delete(userId);
-        socket.broadcast.emit('presence', { userId, online: false });
-      } else {
-        onlineCounts.set(userId, left);
-      }
+      if (presence.disconnected(userId)) socket.broadcast.emit('presence', { userId, online: false });
     });
   });
 

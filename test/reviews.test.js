@@ -40,7 +40,13 @@ const call = async (method, path, body, token) => {
 };
 let n = 0;
 const newUser = async () =>
-  (await call('POST', '/auth/signup', { name: `Rev ${n}`, email: `rv${Date.now()}${n++}@t.dev`, password: 'review-test-1' })).data;
+  (
+    await call('POST', '/auth/signup', {
+      name: `Rev ${n}`,
+      email: `rv${Date.now()}${n++}@t.dev`,
+      password: 'review-test-1',
+    })
+  ).data;
 
 test('reviews are stored, listed newest first, and badge real customers', async () => {
   const visitor = await newUser();
@@ -49,7 +55,12 @@ test('reviews are stored, listed newest first, and badge real customers', async 
 
   assert.equal((await call('POST', `/reviews/agency/${agency._id}`, { text: 'Looks great' })).status, 401);
   const a = await call('POST', `/reviews/agency/${agency._id}`, { text: 'Looks great' }, visitor.token);
-  const b = await call('POST', `/reviews/agency/${agency._id}`, { text: 'Amazing guides!', verifiedTraveller: false }, customer.token);
+  const b = await call(
+    'POST',
+    `/reviews/agency/${agency._id}`,
+    { text: 'Amazing guides!', verifiedTraveller: false },
+    customer.token
+  );
   assert.equal(a.status, 201);
   assert.equal(a.data.verifiedTraveller, false);
   assert.equal(b.data.verifiedTraveller, true);

@@ -8,7 +8,12 @@
 const env = require('../../config/env');
 const { cache } = require('../../infra/redis');
 
-module.exports = function rateLimit({ name = 'api', max = env.rateLimit.max, windowSec = env.rateLimit.windowSec, key } = {}) {
+module.exports = function rateLimit({
+  name = 'api',
+  max = env.rateLimit.max,
+  windowSec = env.rateLimit.windowSec,
+  key,
+} = {}) {
   return async (req, res, next) => {
     try {
       const who = (key && key(req)) || req.user?._id || req.ip;

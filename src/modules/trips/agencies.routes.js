@@ -16,7 +16,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } },
-        { location: { $regex: search, $options: 'i' } }
+        { location: { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -39,10 +39,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
 // GET /api/agencies/featured — Get featured/top-rated agencies
 router.get('/featured', async (req, res, next) => {
   try {
-    const agencies = await Agency.find({ isVerified: true })
-      .populate('region', 'name')
-      .sort({ rating: -1 })
-      .limit(6);
+    const agencies = await Agency.find({ isVerified: true }).populate('region', 'name').sort({ rating: -1 }).limit(6);
     res.json(agencies);
   } catch (error) {
     next(error);

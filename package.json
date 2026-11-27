@@ -11,7 +11,12 @@
     "db:migrate": "node scripts/migrate.js",
     "check:env": "node scripts/check-env.js",
     "demo:reset": "node src/seed/resetDemo.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "ci": "npm run lint && npm run format:check && npm test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1178.0",
@@ -29,7 +34,6 @@
     "helmet": "^8.3.0",
     "ioredis": "^6.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongodb-memory-server": "^10.0.0",
     "mongoose": "^8.7.0",
     "multer": "^2.2.0",
     "pg": "^8.23.1",
@@ -39,5 +43,13 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.9",
+    "globals": "^15.15.0",
+    "mongodb-memory-server": "^10.0.0",
+    "prettier": "^3.10.1"
   }
 }

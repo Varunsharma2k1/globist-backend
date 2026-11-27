@@ -7,18 +7,49 @@ const router = express.Router();
 router.use(auth);
 
 // POST /api/notifications/devices { token, platform } — register FCM token
-router.post('/devices', asyncHandler(async (req, res) => {
-  const { token, platform } = req.body || {};
-  if (!token || typeof token !== 'string') throw new HttpError(400, 'token is required');
-  if (platform && !['android', 'ios', 'web'].includes(platform)) throw new HttpError(400, 'invalid platform');
-  await service.registerDevice(req.user._id, { token, platform });
-  res.status(204).end();
-}));
+router.post(
+  '/devices',
+  asyncHandler(async (req, res) => {
+    const { token, platform } = req.body || {};
+    if (!token || typeof token !== 'string') throw new HttpError(400, 'token is required');
+    if (platform && !['android', 'ios', 'web'].includes(platform)) throw new HttpError(400, 'invalid platform');
+    await service.registerDevice(req.user._id, { token, platform });
+    res.status(204).end();
+  })
+);
 
 // DELETE /api/notifications/devices/:token — on logout
-router.delete('/devices/:token', asyncHandler(async (req, res) => {
-  await service.unregisterDevice(req.user._id, req.params.token);
-  res.status(204).end();
-}));
+router.delete(
+  '/devices/:token',
+  asyncHandler(async (req, res) => {
+    await service.unregisterDevice(req.user._id, req.params.token);
+    res.status(204).end();
+  })
+);
+
+// GET /api/notifications -> newest first, with who did it and the tape
+router.get(
+  '/',
+  asyncHandler(async (req, res) => {
+    res.json(await service.list(req.user._id, req.query));
+  })
+);
+
+// GET /api/notifications/unread-count -> { count }
+router.get(
+  '/unread-count',
+  asyncHandler(async (req, res) => {
+    res.json({ count: await service.unreadCount(req.user._id) });
+  })
+);
+
+// POST /api/notifications/read — mark everything read (opening the tab)
+router.post(
+  '/read',
+  asyncHandler(async (req, res) => {
+    await service.markAllRead(req.user._id);
+    res.status(204).end();
+  })
+);
 
 module.exports = router;

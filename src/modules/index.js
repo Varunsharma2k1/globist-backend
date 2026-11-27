@@ -26,4 +26,6 @@ module.exports = [
   ['/api/chat', require('./chat/chat.routes')],
   ['/api/reviews', require('./reviews/reviews.routes')],
   ['/api/places', require('./places/places.routes')],
+  ['/api/support', require('./support/support.routes')],
+  ['/api/communities', require('./communities/communities.routes')],
 ];

@@ -40,7 +40,8 @@ router.post(
   auth,
   asyncHandler(async (req, res) => {
     const { orderId, paymentId, signature } = req.body || {};
-    if (!razorpay.verifyCheckout({ orderId, paymentId, signature })) throw new HttpError(400, 'Payment verification failed');
+    if (!razorpay.verifyCheckout({ orderId, paymentId, signature }))
+      throw new HttpError(400, 'Payment verification failed');
     const owned = await Booking.exists({ 'payment.orderId': orderId, user: req.user._id });
     if (!owned) throw new HttpError(404, 'Booking not found');
     const { booking } = await payments.confirmByOrder(orderId, paymentId);
