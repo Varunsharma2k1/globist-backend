@@ -3,7 +3,6 @@ const Region = require('../modules/trips/region.model');
 const Agency = require('../modules/trips/agency.model');
 const Trip = require('../modules/trips/trip.model');
 const Booking = require('../modules/booking/booking.model');
-const Reel = require('../modules/reels/reel.model');
 
 const regionsData = require('./data/regions');
 const demoUserData = require('./data/demoUser');
@@ -13,11 +12,9 @@ const buildTripsPart1 = require('./data/trips.part1');
 const buildTripsPart2 = require('./data/trips.part2');
 const buildTripsPart3 = require('./data/trips.part3');
 const buildBookings = require('./data/bookings');
-const buildReelsPart1 = require('./data/reels.part1');
-const buildReelsPart2 = require('./data/reels.part2');
 
 // Populates a fresh (empty) database with demo content: regions, one demo
-// user, agencies, trips, bookings and reels. Each data set lives in its own
+// user, agencies, trips, and bookings. (No demo tapes: every tape is a real upload on R2.) Each data set lives in its own
 // file under ./data — later sets take the previously-inserted documents as
 // arguments so they can link to real _ids (e.g. a trip's `region` field).
 async function seedDatabase() {
@@ -46,12 +43,6 @@ async function seedDatabase() {
 
   const bookings = await Booking.insertMany(buildBookings(demoUser, trips, agencies));
   console.log(`  ✓ ${bookings.length} bookings created`);
-
-  const reels = await Reel.insertMany([
-    ...buildReelsPart1(demoUser, agencies, bookings),
-    ...buildReelsPart2(demoUser, agencies),
-  ]);
-  console.log(`  ✓ ${reels.length} reels created`);
 
   console.log('✅ Database seeded successfully!');
 }

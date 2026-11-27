@@ -1,8 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const crypto = require('crypto');
 const Reel = require('./reel.model');
 const { resolveAffiliation, agencyReels, tapeStats, userReels } = require('./reels.service');
 const places = require('../places/places.service');
@@ -12,35 +9,6 @@ const { asyncHandler } = require('../../shared/http');
 const limitEngage = rateLimit({ name: 'reel-like', max: 120 });
 const limitComment = rateLimit({ name: 'reel-comment', max: 10 });
 const { auth, optionalAuth } = require('../../shared/middleware/auth');
-
-// Stores uploaded reel media (video/photo) under /uploads/reels, served
-// statically by index.js. Filenames are randomized to avoid collisions.
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: path.join(__dirname, '..', '..', '..', 'uploads', 'reels'),
-    filename: (req, file, cb) => {
-      const unique = crypto.randomBytes(12).toString('hex');
-      cb(null, `${unique}${path.extname(file.originalname) || ''}`);
-    },
-  }),
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
-  fileFilter: (req, file, cb) => {
-    const isMedia = /^(video|image)\//.test(file.mimetype);
-    cb(isMedia ? null : new Error('Only video or image files are allowed'), isMedia);
-  },
-});
-
-// POST /api/reels/upload — Upload a reel's video/photo file, returns its URL
-router.post('/upload', auth, upload.single('file'), async (req, res, next) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
-    res.status(201).json({ url: `/uploads/reels/${req.file.filename}` });
-  } catch (error) {
-    next(error);
-  }
-});
 
 // GET /api/reels/mine — the signed-in user's own tapes (incl. still processing)
 router.get('/mine', auth, async (req, res, next) => {

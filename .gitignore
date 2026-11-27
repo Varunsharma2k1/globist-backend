@@ -19,5 +19,6 @@ yarn-error.log*
 .idea/
 
 # Local media written by the dev storage fallback
-/uploads/raw
-/uploads/media
+
+# Local media (dev fallback) — never committed
+/uploads/
