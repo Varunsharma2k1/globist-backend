@@ -15,9 +15,13 @@ const Agency = require('../trips/agency.model');
 const notifications = require('../notifications/notifications.service');
 
 let io = null;
-const setIO = (instance) => { io = instance; };
+const setIO = (instance) => {
+  io = instance;
+};
 /** Drops live sockets of a revoked session (works across instances via the Redis adapter). */
-const disconnectSession = (sid) => { io?.in(`session:${sid}`).disconnectSockets(true); };
+const disconnectSession = (sid) => {
+  io?.in(`session:${sid}`).disconnectSockets(true);
+};
 const emitToUser = (userId, event, payload) => {
   if (io) io.to(`user:${userId}`).emit(event, payload);
 };
@@ -39,7 +43,9 @@ function serializeConversation(conv, viewerId) {
       name: agency ? agency.name : other.name,
       avatar: other.avatar || '',
       role: agency ? 'agency' : other.role,
-      isVerified: agency ? agency.isVerified : other.isVerified,
+      // Blue tick = an approved agency only. A user's isVerified just means
+      // their email is confirmed; showing it as a badge would let anyone look official.
+      isVerified: agency ? Boolean(agency.isVerified) : false,
     },
     agency: agency ? { _id: agency._id, name: agency.name } : null,
     lastMessage: conv.lastMessage?.createdAt ? conv.lastMessage : null,
@@ -50,9 +56,7 @@ function serializeConversation(conv, viewerId) {
 }
 
 async function loadConversation(id) {
-  return Conversation.findById(id)
-    .populate('participants', USER_FIELDS)
-    .populate('agency', 'name isVerified');
+  return Conversation.findById(id).populate('participants', USER_FIELDS).populate('agency', 'name isVerified');
 }
 
 /** Throws unless `userId` is in the conversation. */
@@ -124,7 +128,10 @@ async function listMessages(conversationId, userId, { before, limit = 30 } = {})
   const q = { conversation: conversationId };
   if (before && !Number.isNaN(Date.parse(before))) q.createdAt = { $lt: new Date(before) };
   const size = Math.min(Math.max(Number(limit) || 30, 1), 100);
-  const msgs = await Message.find(q).sort({ createdAt: -1 }).limit(size + 1).lean();
+  const msgs = await Message.find(q)
+    .sort({ createdAt: -1 })
+    .limit(size + 1)
+    .lean();
   const hasMore = msgs.length > size;
   // Oldest first for rendering.
   return { messages: msgs.slice(0, size).reverse(), hasMore };
@@ -146,10 +153,15 @@ async function sendMessage(conversationId, senderId, { text, clientId } = {}) {
 
   let message;
   try {
-    message = (await Message.create({ conversation: conv._id, sender: senderId, text: body, clientId: cid })).toObject();
+    message = (
+      await Message.create({ conversation: conv._id, sender: senderId, text: body, clientId: cid })
+    ).toObject();
   } catch (err) {
     if (err.code === 11000 && cid) {
-      return { message: await Message.findOne({ conversation: conv._id, sender: senderId, clientId: cid }).lean(), duplicate: true };
+      return {
+        message: await Message.findOne({ conversation: conv._id, sender: senderId, clientId: cid }).lean(),
+        duplicate: true,
+      };
     }
     throw err;
   }
@@ -169,7 +181,9 @@ async function sendMessage(conversationId, senderId, { text, clientId } = {}) {
       $inc: inc,
     },
     { new: true }
-  ).populate('participants', USER_FIELDS).populate('agency', 'name isVerified');
+  )
+    .populate('participants', USER_FIELDS)
+    .populate('agency', 'name isVerified');
 
   for (const p of updated.participants) {
     emitToUser(p._id, 'message:new', {
@@ -195,10 +209,7 @@ async function sendMessage(conversationId, senderId, { text, clientId } = {}) {
 async function markRead(conversationId, userId) {
   const conv = await getConversationFor(conversationId, userId);
   const at = new Date();
-  await Conversation.updateOne(
-    { _id: conv._id },
-    { $set: { [`unread.${userId}`]: 0, [`lastReadAt.${userId}`]: at } }
-  );
+  await Conversation.updateOne({ _id: conv._id }, { $set: { [`unread.${userId}`]: 0, [`lastReadAt.${userId}`]: at } });
   for (const p of conv.participants) {
     emitToUser(p._id, 'conversation:read', { conversationId: String(conv._id), userId: String(userId), at });
   }

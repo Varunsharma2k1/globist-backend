@@ -4,9 +4,13 @@ const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
 const Reel = require('./reel.model');
-const { resolveAffiliation, agencyReels, tapeStats } = require('./reels.service');
+const { resolveAffiliation, agencyReels, tapeStats, userReels } = require('./reels.service');
 const places = require('../places/places.service');
-const User = require('../users/user.model');
+const engagement = require('./engagement.service');
+const rateLimit = require('../../shared/middleware/rateLimit');
+const { asyncHandler } = require('../../shared/http');
+const limitEngage = rateLimit({ name: 'reel-like', max: 120 });
+const limitComment = rateLimit({ name: 'reel-comment', max: 10 });
 const { auth, optionalAuth } = require('../../shared/middleware/auth');
 
 // Stores uploaded reel media (video/photo) under /uploads/reels, served
@@ -53,6 +57,25 @@ router.get('/mine', auth, async (req, res, next) => {
   }
 });
 
+// GET /api/reels/user/:userId — someone's public tapes (their profile grid)
+router.get('/user/:userId', async (req, res, next) => {
+  try {
+    if (!/^[a-f0-9]{24}$/.test(req.params.userId)) return res.json([]);
+    res.json(await userReels(req.params.userId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reels/liked-ids — tapes I liked (fills the hearts)
+router.get(
+  '/liked-ids',
+  auth,
+  asyncHandler(async (req, res) => {
+    res.json(await engagement.likedIds(req.user._id));
+  })
+);
+
 // GET /api/reels/stats — { tapes, spots } for the Home live-map card
 router.get('/stats', async (req, res, next) => {
   try {
@@ -88,7 +111,7 @@ router.get('/', optionalAuth, async (req, res, next) => {
     res.json({
       reels: results,
       nextCursor,
-      hasMore
+      hasMore,
     });
   } catch (error) {
     next(error);
@@ -131,7 +154,7 @@ router.post('/', auth, async (req, res, next) => {
       creatorTier: postingUser.explorerTier || 'bronze',
       likes: 0,
       comments: 0,
-      shares: 0
+      shares: 0,
     });
 
     await reel.save();
@@ -147,32 +170,47 @@ router.post('/', auth, async (req, res, next) => {
   }
 });
 
-// POST /api/reels/:id/like — Like/unlike a reel
-router.post('/:id/like', auth, async (req, res, next) => {
-  try {
-    const reel = await Reel.findById(req.params.id);
-    if (!reel) {
-      return res.status(404).json({ message: 'Reel not found' });
-    }
+// Likes: PUT to like, DELETE to unlike (both safe to repeat).
+router.put(
+  '/:id/like',
+  auth,
+  limitEngage,
+  asyncHandler(async (req, res) => {
+    res.json(await engagement.like(req.user, req.params.id));
+  })
+);
+router.delete(
+  '/:id/like',
+  auth,
+  limitEngage,
+  asyncHandler(async (req, res) => {
+    res.json(await engagement.unlike(req.user, req.params.id));
+  })
+);
 
-    const userId = req.user._id;
-    const idx = reel.likedBy.indexOf(userId);
-
-    if (idx > -1) {
-      reel.likedBy.splice(idx, 1);
-      reel.likes = Math.max(0, reel.likes - 1);
-      await reel.save();
-      return res.json({ liked: false, likes: reel.likes });
-    } else {
-      reel.likedBy.push(userId);
-      reel.likes += 1;
-      await reel.save();
-      return res.json({ liked: true, likes: reel.likes });
-    }
-  } catch (error) {
-    next(error);
-  }
-});
+// Comments
+router.get(
+  '/:id/comments',
+  asyncHandler(async (req, res) => {
+    res.json(await engagement.listComments(req.params.id, req.query));
+  })
+);
+router.post(
+  '/:id/comments',
+  auth,
+  limitComment,
+  asyncHandler(async (req, res) => {
+    res.status(201).json(await engagement.addComment(req.user, req.params.id, req.body?.text));
+  })
+);
+router.delete(
+  '/comments/:commentId',
+  auth,
+  asyncHandler(async (req, res) => {
+    await engagement.deleteComment(req.user, req.params.commentId);
+    res.json({ message: 'Deleted' });
+  })
+);
 
 // GET /api/reels/agency/:agencyId — Reels for a specific agency
 router.get('/agency/:agencyId', async (req, res, next) => {

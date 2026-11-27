@@ -34,7 +34,10 @@ async function createOrderForBooking(booking) {
 async function confirmByOrder(orderId, paymentId) {
   const booking = await Booking.findOneAndUpdate(
     { 'payment.orderId': orderId, status: 'pending' },
-    { $set: { status: 'confirmed', 'payment.paymentId': paymentId, 'payment.status': 'paid' }, $unset: { holdExpiresAt: 1 } },
+    {
+      $set: { status: 'confirmed', 'payment.paymentId': paymentId, 'payment.status': 'paid' },
+      $unset: { holdExpiresAt: 1 },
+    },
     { new: true }
   );
   if (!booking) return { booking: await Booking.findOne({ 'payment.orderId': orderId }), alreadyHandled: true };

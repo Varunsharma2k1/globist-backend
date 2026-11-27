@@ -1,6 +1,6 @@
 /**
  * Builds the Express app (no listening, no DB connect) so it can be used by
- * the long-running server, the Vercel function and tests alike.
+ * the long-running server and the tests alike.
  */
 const express = require('express');
 const cors = require('cors');

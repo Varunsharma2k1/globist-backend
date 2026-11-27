@@ -1,6 +1,6 @@
 /**
  * Long-running server: HTTP API + Socket.IO chat + (optionally) workers.
- * This is what runs on EC2 / ECS. Vercel uses api/index.js instead.
+ * This is what runs in production (Render today; EC2/ECS later, same code).
  */
 const http = require('http');
 const env = require('./config/env');
@@ -31,7 +31,9 @@ async function start() {
 
   server.listen(env.port, () => {
     logger.info(`Triptape API on http://localhost:${env.port}  (deps: /api/health/deps)`);
-    const on = Object.entries(env.features).filter(([, v]) => v).map(([k]) => k);
+    const on = Object.entries(env.features)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
     logger.info(`connections enabled: ${on.length ? on.join(', ') : 'none — all dev fallbacks'}`);
     if (!env.isProd) logger.info('demo login: riya.kapoor@triptape.app / Triptape@123');
   });
@@ -39,7 +41,13 @@ async function start() {
   const shutdown = async (signal) => {
     logger.info(`${signal}: shutting down`);
     server.close();
-    await Promise.allSettled([...running.map((w) => w.close()), queue.close(), redis.close(), postgres.close(), closeObservability()]);
+    await Promise.allSettled([
+      ...running.map((w) => w.close()),
+      queue.close(),
+      redis.close(),
+      postgres.close(),
+      closeObservability(),
+    ]);
     await disconnectDB().catch(() => {});
     process.exit(0);
   };

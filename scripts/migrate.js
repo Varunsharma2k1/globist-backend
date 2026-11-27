@@ -9,10 +9,15 @@ const pg = require('../src/infra/postgres');
     console.log('DATABASE_URL is not set — nothing to migrate.');
     process.exit(0);
   }
-  await pg.query('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
+  await pg.query(
+    'CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())'
+  );
   const dir = path.join(__dirname, '..', 'db', 'postgres', 'migrations');
   const done = new Set((await pg.query('SELECT name FROM schema_migrations')).rows.map((r) => r.name));
-  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
+  for (const file of fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort()) {
     if (done.has(file)) continue;
     await pg.tx(async (c) => {
       await c.query(fs.readFileSync(path.join(dir, file), 'utf8'));

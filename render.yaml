@@ -1,0 +1,47 @@
+# Render Blueprint: Render reads this file to create and configure the API.
+# Dashboard → New → Blueprint → pick this repo. Secrets marked `sync: false`
+# are typed into the Render dashboard once; they never live in git.
+services:
+  - type: web
+    name: triptape-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: singapore # closest Render region to India
+    plan: free # upgrade to "starter" (~$7/mo) so it never sleeps
+    branch: main
+    # CD: deploy only after the GitHub Actions CI checks pass.
+    autoDeployTrigger: checksPass
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001
+      - key: DEMO_TOOLS
+        value: 'false'
+      - key: JWT_SECRET
+        generateValue: true # Render creates a strong random secret
+      - key: MONGO_URI
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_IDS
+        sync: false
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_RAW_BUCKET
+        sync: false
+      - key: R2_MEDIA_BUCKET
+        sync: false
+      - key: CDN_BASE_URL
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false

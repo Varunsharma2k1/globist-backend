@@ -16,10 +16,6 @@ async function connectDB() {
     logger.info('MongoDB connected (MONGO_URI)');
     return;
   }
-  if (env.isServerless) {
-    process.env.MONGOMS_DOWNLOAD_DIR = '/tmp';
-    process.env.MONGOMS_PREFER_GLOBAL_PATH = 'true';
-  }
   const { MongoMemoryServer } = require('mongodb-memory-server');
   mongod = await MongoMemoryServer.create();
   await mongoose.connect(mongod.getUri());

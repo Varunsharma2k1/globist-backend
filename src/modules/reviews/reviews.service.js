@@ -25,7 +25,11 @@ async function listForAgency(agencyId, { before, limit = PAGE } = {}) {
   if (cursor && !Number.isNaN(cursor.getTime())) filter.createdAt = { $lt: cursor };
   const size = Math.min(Math.max(parseInt(limit, 10) || PAGE, 1), 50);
   const [reviews, total] = await Promise.all([
-    Review.find(filter).sort({ createdAt: -1 }).limit(size + 1).populate('user', PUBLIC_USER).lean(),
+    Review.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(size + 1)
+      .populate('user', PUBLIC_USER)
+      .lean(),
     Review.countDocuments({ agency: agencyId, hidden: false }),
   ]);
   const hasMore = reviews.length > size;

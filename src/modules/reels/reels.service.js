@@ -2,7 +2,8 @@
  * Reels business rules shared by every "create a reel" route.
  *
  * Agency tagging ("affiliate" reels) is earned, never claimed: a reel is
- * linked to an agency ONLY through a booking the poster made on TripTape.
+ * linked to an agency ONLY through a booking the poster made on TripTape,
+ * and only once that trip is over.
  * The agency comes from that booking — never from the request — so nobody
  * can tag an agency they didn't travel with by calling the API directly.
  */
@@ -10,9 +11,8 @@ const mongoose = require('mongoose');
 const { HttpError } = require('../../shared/http');
 const Reel = require('./reel.model');
 const Booking = require('../booking/booking.model');
+const { tripFinished } = require('../booking/booking.service');
 const { remember } = require('../../infra/redis');
-
-const TAGGABLE_STATUSES = ['confirmed', 'completed'];
 
 /**
  * @param {Object} user  req.user
@@ -24,10 +24,16 @@ async function resolveAffiliation(user, bookingId) {
   if (typeof bookingId !== 'string' || !mongoose.isValidObjectId(bookingId)) {
     throw new HttpError(400, 'Invalid booking');
   }
-  const booking = await Booking.findOne({ _id: bookingId, user: user._id }).select('agency status');
+  const booking = await Booking.findOne({ _id: bookingId, user: user._id }).select('agency status checkOut');
   if (!booking) throw new HttpError(403, 'You can only tag a trip you booked');
-  if (!TAGGABLE_STATUSES.includes(booking.status)) {
-    throw new HttpError(409, 'This booking can’t be tagged');
+  // Only after the trip is over (and so can no longer be cancelled): a tape
+  // and its reward can't be earned on a booking that later gets cancelled.
+  if (!tripFinished(booking)) {
+    if (booking.status === 'cancelled' || booking.status === 'pending') {
+      throw new HttpError(409, 'This booking can’t be tagged', 'BOOKING_NOT_TAGGABLE');
+    }
+    const back = booking.checkOut ? new Date(booking.checkOut).toDateString() : 'your return date';
+    throw new HttpError(409, `You can post a tape for this trip after it ends (${back}).`, 'TRIP_NOT_FINISHED');
   }
   if (await Reel.exists({ booking: booking._id, user: user._id })) {
     throw new HttpError(409, 'You already posted a tape for this trip', 'BOOKING_ALREADY_TAGGED');
@@ -79,9 +85,26 @@ function tapeStats() {
 async function countByLocation() {
   const rows = await Reel.aggregate([
     { $match: { ...PLAYABLE, location: { $nin: [null, ''] } } },
-    { $group: { _id: { $toLower: { $trim: { input: '$location' } } }, name: { $first: '$location' }, count: { $sum: 1 } } },
+    {
+      $group: {
+        _id: { $toLower: { $trim: { input: '$location' } } },
+        name: { $first: '$location' },
+        count: { $sum: 1 },
+      },
+    },
   ]);
   return rows.map((r) => ({ key: r._id, name: r.name, count: r.count }));
 }
 
-module.exports = { resolveAffiliation, agencyReels, tapeStats, countByLocation };
+/** A user's playable tapes for their public profile, without private fields. */
+function userReels(userId, { limit = 60 } = {}) {
+  return Reel.find({ user: userId, ...PLAYABLE })
+    .select('-rawKey -booking -likedBy')
+    .populate('user', 'name explorerTier avatar')
+    .populate('agency', 'name location isVerified')
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+}
+
+module.exports = { userReels, resolveAffiliation, agencyReels, tapeStats, countByLocation };

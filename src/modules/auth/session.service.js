@@ -140,7 +140,10 @@ async function rotate(refreshToken) {
 }
 
 async function revokeSession(session, reason) {
-  await Session.updateOne({ _id: session._id, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: reason } });
+  await Session.updateOne(
+    { _id: session._id, revokedAt: null },
+    { $set: { revokedAt: new Date(), revokeReason: reason } }
+  );
   await cache.set(REVOKED_KEY(session._id), 1, env.auth.accessTtlSec + 120);
   require('../chat/chat.service').disconnectSession(String(session._id)); // lazy: avoids a require cycle
 }

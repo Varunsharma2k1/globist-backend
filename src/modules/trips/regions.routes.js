@@ -47,17 +47,16 @@ router.get('/:id', async (req, res, next) => {
     // Map frontend category names to DB category values
     if (category && category !== 'All') {
       const categoryMap = {
-        'Treks': 'Treks',
+        Treks: 'Treks',
         'Luxury Stays': 'Luxury',
         'City Tours': 'City Tours',
-        'Adventure': 'Adventure',
+        Adventure: 'Adventure',
       };
       const dbCategory = categoryMap[category] || category;
       agencyFilter.categories = { $in: [dbCategory] };
     }
 
-    const agencies = await Agency.find(agencyFilter)
-      .sort({ rating: -1 });
+    const agencies = await Agency.find(agencyFilter).sort({ rating: -1 });
 
     const trips = await Trip.find({ region: region._id })
       .populate('agency', 'name location rating reviewCount isVerified categories imageType')

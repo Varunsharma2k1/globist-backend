@@ -23,7 +23,13 @@ const getClient = () => {
 async function createOrder({ amountPaise, receipt, notes = {} }) {
   const c = getClient();
   if (!c) {
-    return { id: `order_mock_${crypto.randomBytes(6).toString('hex')}`, amount: amountPaise, currency: 'INR', receipt, mock: true };
+    return {
+      id: `order_mock_${crypto.randomBytes(6).toString('hex')}`,
+      amount: amountPaise,
+      currency: 'INR',
+      receipt,
+      mock: true,
+    };
   }
   return c.orders.create({ amount: amountPaise, currency: 'INR', receipt: String(receipt), notes });
 }

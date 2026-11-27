@@ -3,7 +3,11 @@ const { captureError } = require('../../infra/observability');
 // eslint-disable-next-line no-unused-vars
 module.exports = function errorHandler(err, req, res, next) {
   if (err.name === 'ValidationError' && err.errors) {
-    return res.status(400).json({ message: Object.values(err.errors).map((e) => e.message).join(', ') });
+    return res.status(400).json({
+      message: Object.values(err.errors)
+        .map((e) => e.message)
+        .join(', '),
+    });
   }
   if (err.code === 11000 && err.keyValue) {
     return res.status(400).json({ message: `${Object.keys(err.keyValue)[0]} already exists` });

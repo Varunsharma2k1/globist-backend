@@ -29,6 +29,7 @@ const MAX_PASSWORD_LENGTH = 72; // bcrypt ignores bytes beyond 72
 
 const sanitize = (user) => {
   const obj = user.toObject();
+  obj.hasPassword = Boolean(obj.password); // never the password itself
   delete obj.password;
   delete obj.refreshToken;
   delete obj.otpCode;
@@ -132,81 +133,103 @@ const limitResetEmail = rateLimit({
 
 // POST /api/auth/password/forgot  { email }
 // Always the same reply, whether or not the account exists.
-router.post('/password/forgot', limitIp, limitResetEmail, asyncHandler(async (req, res) => {
-  const email = emailOf(req.body);
-  const reply = { message: 'If an account exists for this email, we sent a 6-digit code. It expires in 10 minutes.' };
-  if (!EMAIL_RE.test(email)) return res.json(reply);
+router.post(
+  '/password/forgot',
+  limitIp,
+  limitResetEmail,
+  asyncHandler(async (req, res) => {
+    const email = emailOf(req.body);
+    const reply = { message: 'If an account exists for this email, we sent a 6-digit code. It expires in 10 minutes.' };
+    if (!EMAIL_RE.test(email)) return res.json(reply);
 
-  const user = await User.findOne({ email });
-  if (user) {
-    const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
-    user.passwordReset = { codeHash: resetHash(user._id, code), expiresAt: new Date(Date.now() + RESET_TTL_MS), attempts: 0 };
-    await user.save();
-    await mailer.sendEmail({
-      to: user.email,
-      subject: 'Your Triptape password reset code',
-      text:
-        `Your Triptape code is ${code}. It expires in 10 minutes.\n\n` +
-        "If you didn't ask to reset your password, ignore this email — your account is safe.",
-    });
-  }
-  res.json(reply);
-}));
+    const user = await User.findOne({ email });
+    if (user) {
+      const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+      user.passwordReset = {
+        codeHash: resetHash(user._id, code),
+        expiresAt: new Date(Date.now() + RESET_TTL_MS),
+        attempts: 0,
+      };
+      await user.save();
+      await mailer.sendEmail({
+        to: user.email,
+        subject: 'Your Triptape password reset code',
+        text:
+          `Your Triptape code is ${code}. It expires in 10 minutes.\n\n` +
+          "If you didn't ask to reset your password, ignore this email — your account is safe.",
+      });
+    }
+    res.json(reply);
+  })
+);
 
 // POST /api/auth/password/reset  { email, code, newPassword }
 // Sets the new password, signs out EVERY device, and signs this one in.
-router.post('/password/reset', limitIp, limitAccount, asyncHandler(async (req, res) => {
-  const email = emailOf(req.body);
-  const code = text(req.body?.code);
-  const { newPassword } = req.body || {};
-  const invalidCode = { code: 'INVALID_CODE', message: 'That code is wrong or has expired. Request a new one.' };
+router.post(
+  '/password/reset',
+  limitIp,
+  limitAccount,
+  asyncHandler(async (req, res) => {
+    const email = emailOf(req.body);
+    const code = text(req.body?.code);
+    const { newPassword } = req.body || {};
+    const invalidCode = { code: 'INVALID_CODE', message: 'That code is wrong or has expired. Request a new one.' };
 
-  const problem = passwordProblem(newPassword);
-  if (problem) return res.status(400).json({ message: problem });
+    const problem = passwordProblem(newPassword);
+    if (problem) return res.status(400).json({ message: problem });
 
-  const user = await User.findOne({ email });
-  const pr = user?.passwordReset;
-  if (!user || !pr?.codeHash || !pr.expiresAt || pr.expiresAt.getTime() < Date.now() || !/^\d{6}$/.test(code)) {
-    return res.status(400).json(invalidCode);
-  }
-  const expected = Buffer.from(pr.codeHash);
-  const given = Buffer.from(resetHash(user._id, code));
-  if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) {
-    // Guessing is capped: after 5 wrong tries the code is destroyed.
-    const attempts = (pr.attempts || 0) + 1;
-    if (attempts >= RESET_MAX_ATTEMPTS) user.passwordReset = undefined;
-    else user.passwordReset.attempts = attempts;
+    const user = await User.findOne({ email });
+    const pr = user?.passwordReset;
+    if (!user || !pr?.codeHash || !pr.expiresAt || pr.expiresAt.getTime() < Date.now() || !/^\d{6}$/.test(code)) {
+      return res.status(400).json(invalidCode);
+    }
+    const expected = Buffer.from(pr.codeHash);
+    const given = Buffer.from(resetHash(user._id, code));
+    if (expected.length !== given.length || !crypto.timingSafeEqual(expected, given)) {
+      // Guessing is capped: after 5 wrong tries the code is destroyed.
+      const attempts = (pr.attempts || 0) + 1;
+      if (attempts >= RESET_MAX_ATTEMPTS) user.passwordReset = undefined;
+      else user.passwordReset.attempts = attempts;
+      await user.save();
+      return res.status(400).json(invalidCode);
+    }
+
+    user.password = newPassword;
+    user.passwordReset = undefined;
+    user.passwordChangedAt = new Date();
+    user.isVerified = true; // they proved they own the inbox
     await user.save();
-    return res.status(400).json(invalidCode);
-  }
-
-  user.password = newPassword;
-  user.passwordReset = undefined;
-  user.passwordChangedAt = new Date();
-  user.isVerified = true; // they proved they own the inbox
-  await user.save();
-  await sessions.revokeAllForUser(user._id, { reason: 'password_changed' });
-  res.json(await startSession(user, req));
-}));
+    await sessions.revokeAllForUser(user._id, { reason: 'password_changed' });
+    res.json(await startSession(user, req));
+  })
+);
 
 // POST /api/auth/password/change  { currentPassword, newPassword }  (signed in)
 // Other devices are signed out; this one stays signed in.
-router.post('/password/change', auth, limitIp, asyncHandler(async (req, res) => {
-  const { currentPassword, newPassword } = req.body || {};
-  const problem = passwordProblem(newPassword);
-  if (problem) return res.status(400).json({ message: problem });
+router.post(
+  '/password/change',
+  auth,
+  limitIp,
+  asyncHandler(async (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    const problem = passwordProblem(newPassword);
+    if (problem) return res.status(400).json({ message: problem });
 
-  const user = await User.findById(req.user._id);
-  // Google-only accounts have no current password; they set one here.
-  if (user.password && !(typeof currentPassword === 'string' && (await user.comparePassword(currentPassword)))) {
-    return res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'Current password is incorrect' });
-  }
-  user.password = newPassword;
-  user.passwordChangedAt = new Date();
-  await user.save();
-  const signedOut = await sessions.revokeAllForUser(user._id, { exceptSid: req.auth.sid, reason: 'password_changed' });
-  res.json({ message: 'Password updated', otherDevicesSignedOut: signedOut });
-}));
+    const user = await User.findById(req.user._id);
+    // Google-only accounts have no current password; they set one here.
+    if (user.password && !(typeof currentPassword === 'string' && (await user.comparePassword(currentPassword)))) {
+      return res.status(401).json({ code: 'INVALID_CREDENTIALS', message: 'Current password is incorrect' });
+    }
+    user.password = newPassword;
+    user.passwordChangedAt = new Date();
+    await user.save();
+    const signedOut = await sessions.revokeAllForUser(user._id, {
+      exceptSid: req.auth.sid,
+      reason: 'password_changed',
+    });
+    res.json({ message: 'Password updated', otherDevicesSignedOut: signedOut });
+  })
+);
 
 // POST /api/auth/google  { idToken }
 // Signs in with Google. Finds the user by googleId, else links an existing
@@ -265,33 +288,52 @@ router.patch('/account-type', auth, async (req, res, next) => {
 
 // POST /api/auth/refresh  { refreshToken } -> { token, refreshToken, accessTokenExpiresAt }
 // The old refresh token is dead after this; the app must store the new one.
-router.post('/refresh', limitRefresh, asyncHandler(async (req, res) => {
-  res.json(await sessions.rotate(req.body?.refreshToken));
-}));
+router.post(
+  '/refresh',
+  limitRefresh,
+  asyncHandler(async (req, res) => {
+    res.json(await sessions.rotate(req.body?.refreshToken));
+  })
+);
 
 // POST /api/auth/logout  { refreshToken } — ends this device's session.
 // Needs no access token, so it works even after the access token expired.
-router.post('/logout', asyncHandler(async (req, res) => {
-  await sessions.revokeByRefreshToken(req.body?.refreshToken);
-  res.json({ message: 'Logged out' });
-}));
+router.post(
+  '/logout',
+  asyncHandler(async (req, res) => {
+    await sessions.revokeByRefreshToken(req.body?.refreshToken);
+    res.json({ message: 'Logged out' });
+  })
+);
 
 // POST /api/auth/logout-all — signs out every device, including this one.
-router.post('/logout-all', auth, asyncHandler(async (req, res) => {
-  const count = await sessions.revokeAllForUser(req.user._id);
-  res.json({ message: 'Logged out of all devices', count });
-}));
+router.post(
+  '/logout-all',
+  auth,
+  asyncHandler(async (req, res) => {
+    const count = await sessions.revokeAllForUser(req.user._id);
+    res.json({ message: 'Logged out of all devices', count });
+  })
+);
 
 // GET /api/auth/sessions — signed-in devices ("current" marks this one).
-router.get('/sessions', auth, asyncHandler(async (req, res) => {
-  res.json({ sessions: await sessions.listActive(req.user._id, req.auth.sid) });
-}));
+router.get(
+  '/sessions',
+  auth,
+  asyncHandler(async (req, res) => {
+    res.json({ sessions: await sessions.listActive(req.user._id, req.auth.sid) });
+  })
+);
 
 // DELETE /api/auth/sessions/:id — sign out one device.
-router.delete('/sessions/:id', auth, asyncHandler(async (req, res) => {
-  if (!/^[a-f0-9]{24}$/.test(req.params.id)) return res.status(400).json({ message: 'Invalid session id' });
-  await sessions.revokeSessionById(req.user._id, req.params.id);
-  res.json({ message: 'Device signed out' });
-}));
+router.delete(
+  '/sessions/:id',
+  auth,
+  asyncHandler(async (req, res) => {
+    if (!/^[a-f0-9]{24}$/.test(req.params.id)) return res.status(400).json({ message: 'Invalid session id' });
+    await sessions.revokeSessionById(req.user._id, req.params.id);
+    res.json({ message: 'Device signed out' });
+  })
+);
 
 module.exports = router;

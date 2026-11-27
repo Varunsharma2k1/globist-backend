@@ -1,0 +1,46 @@
+# CI: runs on every push and pull request. Render deploys `main` only after
+# these checks pass (render.yaml: autoDeployTrigger: checksPass).
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint, format, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm test
+      # Fail on known critical vulnerabilities in what we ship.
+      - run: npm audit --omit=dev --audit-level=critical
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t triptape-api:ci .
+      # The image must start far enough to reject a missing production config.
+      - run: |
+          out=$(docker run --rm -e NODE_ENV=production triptape-api:ci 2>&1 || true)
+          echo "$out" | grep -q "Production misconfigured" && echo "config guard OK"

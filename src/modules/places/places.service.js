@@ -33,24 +33,58 @@ const RETRY_ERROR_MS = 60 * 60 * 1000;
 
 // Map state codes (match the app's indiaMap.json ids) + common spellings.
 const STATE_NAMES = {
-  AN: ['Andaman & Nicobar', 'Andaman and Nicobar Islands'], AP: ['Andhra Pradesh'], AR: ['Arunachal Pradesh'],
-  AS: ['Assam'], BR: ['Bihar'], CG: ['Chhattisgarh'], CH: ['Chandigarh'],
+  AN: ['Andaman & Nicobar', 'Andaman and Nicobar Islands'],
+  AP: ['Andhra Pradesh'],
+  AR: ['Arunachal Pradesh'],
+  AS: ['Assam'],
+  BR: ['Bihar'],
+  CG: ['Chhattisgarh'],
+  CH: ['Chandigarh'],
   DH: ['Dadra and Nagar Haveli and Daman and Diu', 'Dadra and Nagar Haveli', 'Daman and Diu'],
-  DL: ['Delhi', 'National Capital Territory of Delhi'], GA: ['Goa'], GJ: ['Gujarat'], HP: ['Himachal Pradesh'],
-  HR: ['Haryana'], JH: ['Jharkhand'], JK: ['Jammu & Kashmir', 'Jammu and Kashmir'], KA: ['Karnataka'],
-  KL: ['Kerala'], LA: ['Ladakh'], LD: ['Lakshadweep'], MH: ['Maharashtra'], ML: ['Meghalaya'], MN: ['Manipur'],
-  MP: ['Madhya Pradesh'], MZ: ['Mizoram'], NL: ['Nagaland'], OD: ['Odisha', 'Orissa'], PB: ['Punjab'],
-  PY: ['Puducherry', 'Pondicherry'], RJ: ['Rajasthan'], SK: ['Sikkim'], TN: ['Tamil Nadu'], TR: ['Tripura'],
-  TS: ['Telangana'], UK: ['Uttarakhand', 'Uttaranchal'], UP: ['Uttar Pradesh'], WB: ['West Bengal'],
+  DL: ['Delhi', 'National Capital Territory of Delhi'],
+  GA: ['Goa'],
+  GJ: ['Gujarat'],
+  HP: ['Himachal Pradesh'],
+  HR: ['Haryana'],
+  JH: ['Jharkhand'],
+  JK: ['Jammu & Kashmir', 'Jammu and Kashmir'],
+  KA: ['Karnataka'],
+  KL: ['Kerala'],
+  LA: ['Ladakh'],
+  LD: ['Lakshadweep'],
+  MH: ['Maharashtra'],
+  ML: ['Meghalaya'],
+  MN: ['Manipur'],
+  MP: ['Madhya Pradesh'],
+  MZ: ['Mizoram'],
+  NL: ['Nagaland'],
+  OD: ['Odisha', 'Orissa'],
+  PB: ['Punjab'],
+  PY: ['Puducherry', 'Pondicherry'],
+  RJ: ['Rajasthan'],
+  SK: ['Sikkim'],
+  TN: ['Tamil Nadu'],
+  TR: ['Tripura'],
+  TS: ['Telangana'],
+  UK: ['Uttarakhand', 'Uttaranchal'],
+  UP: ['Uttar Pradesh'],
+  WB: ['West Bengal'],
 };
-const letters = (s) => String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z]/g, '');
+const letters = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z]/g, '');
 const STATE_CODE = new Map(
   Object.entries(STATE_NAMES).flatMap(([code, names]) => names.map((n) => [letters(n), code]))
 );
 const stateCode = (name) => STATE_CODE.get(letters(name)) || null;
 
 /** Same normalization MongoDB uses when grouping ($toLower + $trim). */
-const keyOf = (location) => String(location || '').trim().toLowerCase();
+const keyOf = (location) =>
+  String(location || '')
+    .trim()
+    .toLowerCase();
 const slug = (s) => s.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'place';
 
 const GAZ_BY_NAME = new Map();
@@ -61,7 +95,10 @@ for (const g of GAZETTEER) {
 }
 /** "Manali, Himachal Pradesh" -> gazetteer Manali (first part before a comma). */
 function matchGazetteer(location) {
-  const parts = String(location).split(',').map((p) => p.trim()).filter(Boolean);
+  const parts = String(location)
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
   for (const part of parts.slice(0, 2)) {
     const hit = GAZ_BY_NAME.get(letters(part));
     if (hit) return hit;
@@ -109,38 +146,44 @@ function resolve(location) {
   if (!key) return Promise.resolve(null);
   if (known.has(key)) return Promise.resolve({ key, status: 'ok', cached: true });
   if (inflight.has(key)) return inflight.get(key);
-  const job = (queue = queue.then(async () => {
-    const existing = await Place.findOne({ key }).lean();
-    const age = existing ? Date.now() - new Date(existing.checkedAt).getTime() : Infinity;
-    if (existing?.status === 'ok') remember_(key);
-    if (existing && (existing.status === 'ok' ||
-        (existing.status === 'not_found' && age < RETRY_NOT_FOUND_MS) ||
-        (existing.status === 'error' && age < RETRY_ERROR_MS))) {
-      return existing;
-    }
-    const found = await lookup(String(location).trim());
-    const doc = await Place.findOneAndUpdate(
-      { key },
-      {
-        $set: {
-          name: String(location).trim().slice(0, 120),
-          head: headOf(location),
-          checkedAt: new Date(),
-          pinId: found.pinId || slug(headOf(location) || key),
-          ...found,
+  const job = (queue = queue
+    .then(async () => {
+      const existing = await Place.findOne({ key }).lean();
+      const age = existing ? Date.now() - new Date(existing.checkedAt).getTime() : Infinity;
+      if (existing?.status === 'ok') remember_(key);
+      if (
+        existing &&
+        (existing.status === 'ok' ||
+          (existing.status === 'not_found' && age < RETRY_NOT_FOUND_MS) ||
+          (existing.status === 'error' && age < RETRY_ERROR_MS))
+      ) {
+        return existing;
+      }
+      const found = await lookup(String(location).trim());
+      const doc = await Place.findOneAndUpdate(
+        { key },
+        {
+          $set: {
+            name: String(location).trim().slice(0, 120),
+            head: headOf(location),
+            checkedAt: new Date(),
+            pinId: found.pinId || slug(headOf(location) || key),
+            ...found,
+          },
         },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    ).lean();
-    if (doc.status === 'ok') {
-      remember_(key);
-      await cache.del(LIVE_KEY); // new pin: show it on the next map load
-    }
-    return doc;
-  }).catch((err) => {
-    logger.warn('[places] resolve failed', { location, err: err.message });
-    return null;
-  }).finally(() => inflight.delete(key)));
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      ).lean();
+      if (doc.status === 'ok') {
+        remember_(key);
+        await cache.del(LIVE_KEY); // new pin: show it on the next map load
+      }
+      return doc;
+    })
+    .catch((err) => {
+      logger.warn('[places] resolve failed', { location, err: err.message });
+      return null;
+    })
+    .finally(() => inflight.delete(key)));
   inflight.set(key, job);
   return job;
 }
@@ -166,7 +209,14 @@ function livePlaces() {
       const p = byKey.get(g.key);
       if (!p || p.status !== 'ok') continue;
       const id = p.pinId || slug(p.head || g.key);
-      const pin = pins.get(id) || { id, name: p.name.split(',')[0].trim(), state: p.state, lat: p.lat, lng: p.lng, count: 0 };
+      const pin = pins.get(id) || {
+        id,
+        name: p.name.split(',')[0].trim(),
+        state: p.state,
+        lat: p.lat,
+        lng: p.lng,
+        count: 0,
+      };
       pin.count += g.count;
       pins.set(id, pin);
     }

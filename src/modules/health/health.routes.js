@@ -19,15 +19,23 @@ router.get('/deps', async (req, res) => {
     }
   };
   const [mongoS, pgS, redisS, storageS] = await Promise.all([
-    check(mongo.health), check(postgres.health), check(redis.health), check(storage.health),
+    check(mongo.health),
+    check(postgres.health),
+    check(redis.health),
+    check(storage.health),
   ]);
   const enabled = (k) => (env.features[k] ? 'enabled' : 'disabled (dev fallback)');
   res.json({
     env: env.NODE_ENV,
     stores: { mongo: mongoS, postgres: pgS, redis: redisS, storage: storageS },
     integrations: {
-      razorpay: enabled('razorpay'), fcm: enabled('fcm'), sms: enabled('sms'), email: enabled('email'),
-      maps: enabled('maps'), sentry: enabled('sentry'), posthog: enabled('posthog'),
+      razorpay: enabled('razorpay'),
+      fcm: enabled('fcm'),
+      sms: enabled('sms'),
+      email: enabled('email'),
+      maps: enabled('maps'),
+      sentry: enabled('sentry'),
+      posthog: enabled('posthog'),
     },
   });
 });
