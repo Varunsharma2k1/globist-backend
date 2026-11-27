@@ -32,7 +32,7 @@ function getS3() {
 const bucketName = (kind) => (kind === 'raw' ? env.storage.rawBucket : env.storage.mediaBucket);
 
 /** Presigned PUT the app uploads to directly (bytes never hit the API). */
-async function createUploadUrl({ key, contentType, bucket = 'raw' }) {
+async function createUploadUrl({ key, contentType, bucket = 'raw', contentLength, cacheControl }) {
   const client = getS3();
   if (!client) {
     return {
@@ -46,10 +46,18 @@ async function createUploadUrl({ key, contentType, bucket = 'raw' }) {
   const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
   const uploadUrl = await getSignedUrl(
     client,
-    new PutObjectCommand({ Bucket: bucketName(bucket), Key: key, ContentType: contentType }),
+    new PutObjectCommand({
+      Bucket: bucketName(bucket),
+      Key: key,
+      ContentType: contentType,
+      // Signed into the URL: R2 rejects an upload whose size differs.
+      ...(contentLength ? { ContentLength: contentLength } : {}),
+      ...(cacheControl ? { CacheControl: cacheControl } : {}),
+    }),
     { expiresIn: env.storage.uploadUrlTtlSec }
   );
-  return { uploadUrl, method: 'PUT', headers: { 'Content-Type': contentType }, key };
+  const headers = { 'Content-Type': contentType, ...(cacheControl ? { 'Cache-Control': cacheControl } : {}) };
+  return { uploadUrl, method: 'PUT', headers, key };
 }
 
 async function putObject({ key, body, contentType, bucket = 'media', cacheControl }) {

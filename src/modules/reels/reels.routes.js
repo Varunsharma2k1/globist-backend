@@ -4,7 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
 const Reel = require('./reel.model');
-const { resolveAffiliation, agencyReels } = require('./reels.service');
+const { resolveAffiliation, agencyReels, tapeStats } = require('./reels.service');
+const places = require('../places/places.service');
 const User = require('../users/user.model');
 const { auth, optionalAuth } = require('../../shared/middleware/auth');
 
@@ -32,6 +33,31 @@ router.post('/upload', auth, upload.single('file'), async (req, res, next) => {
       return res.status(400).json({ message: 'No file uploaded' });
     }
     res.status(201).json({ url: `/uploads/reels/${req.file.filename}` });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reels/mine — the signed-in user's own tapes (incl. still processing)
+router.get('/mine', auth, async (req, res, next) => {
+  try {
+    const reels = await Reel.find({ user: req.user._id })
+      .populate('user', 'name explorerTier avatar')
+      .populate('agency', 'name location isVerified')
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    res.json(reels);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reels/stats — { tapes, spots } for the Home live-map card
+router.get('/stats', async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'public, max-age=60');
+    res.json(await tapeStats());
   } catch (error) {
     next(error);
   }
@@ -109,6 +135,7 @@ router.post('/', auth, async (req, res, next) => {
     });
 
     await reel.save();
+    places.warm(reel.location); // map pin for this location (background)
 
     const populatedReel = await Reel.findById(reel._id)
       .populate('user', 'name explorerTier avatar')

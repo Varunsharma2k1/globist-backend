@@ -96,3 +96,18 @@ test("agency profile lists only that agency's tagged tapes", async () => {
   assert.equal(data.length, 1);
   assert.equal(data[0].isAffiliate, true);
 });
+
+test('live map stats: playable tapes and distinct locations', async () => {
+  const { cache } = require('../src/infra/redis');
+  await cache.del('reels:stats:v1');
+  const before = (await call('GET', '/reels/stats')).data;
+  const me = await newUser();
+  await post(me.token, { location: 'Manali' });
+  await post(me.token, { location: '  manali ' }); // same spot
+  await post(me.token, { location: 'Zanskar Valley' });
+  await cache.del('reels:stats:v1');
+  const after = (await call('GET', '/reels/stats')).data;
+  assert.equal(after.tapes - before.tapes, 3);
+  assert.ok(after.spots - before.spots <= 2);
+  assert.ok(after.spots >= 2);
+});

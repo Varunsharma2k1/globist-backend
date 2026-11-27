@@ -8,6 +8,8 @@ const agencySchema = new mongoose.Schema({
   categories: [{ type: String }],
   rating: { type: Number, default: 0, min: 0, max: 5 },
   reviewCount: { type: Number, default: 0 },
+  // Pinned to the top of lists (set with scripts/feature-agency.js).
+  isFeatured: { type: Boolean, default: false, index: true },
   isVerified: { type: Boolean, default: false },
   startingPrice: { type: Number, default: 0 },
   imageType: { type: String, default: 'mountain' },

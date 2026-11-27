@@ -10,6 +10,7 @@ const mongoose = require('mongoose');
 const { HttpError } = require('../../shared/http');
 const Reel = require('./reel.model');
 const Booking = require('../booking/booking.model');
+const { remember } = require('../../infra/redis');
 
 const TAGGABLE_STATUSES = ['confirmed', 'completed'];
 
@@ -50,4 +51,37 @@ function agencyReels(agencyId, { limit = 30 } = {}) {
     .limit(limit);
 }
 
-module.exports = { resolveAffiliation, agencyReels };
+// A tape "counts" once it's playable: finished processing and has a video.
+const PLAYABLE = { status: { $in: ['ready', null] }, mediaUrl: { $nin: [null, ''] } };
+
+/**
+ * Live map numbers from the tapes themselves (no extra data stored):
+ *   tapes = playable tapes
+ *   spots = distinct tagged locations among them ("Manali" ×10 = 1 spot),
+ *           compared case/space-insensitively.
+ * Cached 5 min (Redis, or in-memory without it) so Home stays cheap.
+ */
+function tapeStats() {
+  return remember('reels:stats:v1', 300, async () => {
+    const [tapes, spotsAgg] = await Promise.all([
+      Reel.countDocuments(PLAYABLE),
+      Reel.aggregate([
+        { $match: { ...PLAYABLE, location: { $nin: [null, ''] } } },
+        { $group: { _id: { $toLower: { $trim: { input: '$location' } } } } },
+        { $count: 'spots' },
+      ]),
+    ]);
+    return { tapes, spots: spotsAgg[0]?.spots || 0 };
+  });
+}
+
+/** Playable tapes per tagged location: [{ key, name, count }] (key = lower/trimmed). */
+async function countByLocation() {
+  const rows = await Reel.aggregate([
+    { $match: { ...PLAYABLE, location: { $nin: [null, ''] } } },
+    { $group: { _id: { $toLower: { $trim: { input: '$location' } } }, name: { $first: '$location' }, count: { $sum: 1 } } },
+  ]);
+  return rows.map((r) => ({ key: r._id, name: r.name, count: r.count }));
+}
+
+module.exports = { resolveAffiliation, agencyReels, tapeStats, countByLocation };

@@ -106,6 +106,11 @@ const env = {
     authMax: num('RATE_LIMIT_AUTH_MAX', 20),
   },
   seedOnEmpty: bool('SEED_ON_EMPTY', true),
+  demo: {
+    // Demo shortcut: new bookings start as 'completed' so the "post a tape
+    // from your trip" flow can be tried right away. Never in production.
+    autoCompleteBookings: !isProd && bool('DEMO_AUTO_COMPLETE_BOOKINGS', true),
+  },
 };
 
 env.auth.accessTtl = env.auth.accessTtlSec; // jsonwebtoken takes seconds

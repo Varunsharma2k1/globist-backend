@@ -24,4 +24,6 @@ module.exports = [
   ['/api/payments', require('./payments/payments.routes').router],
   ['/api/notifications', require('./notifications/notifications.routes')],
   ['/api/chat', require('./chat/chat.routes')],
+  ['/api/reviews', require('./reviews/reviews.routes')],
+  ['/api/places', require('./places/places.routes')],
 ];

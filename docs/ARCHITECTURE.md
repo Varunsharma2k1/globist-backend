@@ -63,6 +63,8 @@ Each module can be built by a different person at the same time. Fill in the own
 | `booking` | Booking (holds, inventory) | `/api/bookings` | Mongo → **Postgres next** | |
 | `payments` | Payments (Razorpay, webhooks) | `/api/payments` | Mongo → **Postgres next** | |
 | `notifications` | Notifications (push/SMS/email) | `/api/notifications` | queue | |
+| `reviews` | Agency reviews (comments; verified-traveller badge from bookings) | `/api/reviews` | Mongo | |
+| `places` | Live map pins (tape counts per location; geocode cache) | `/api/places` | Mongo + geocoder | |
 | `chat` | Chat (not in the HLD; Socket.IO) | `/api/chat` + `/socket.io` | Mongo | |
 | `health` | Ops | `/api/health` | — | |
 

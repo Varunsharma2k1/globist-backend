@@ -1,4 +1,5 @@
 const express = require('express');
+const storage = require('../../infra/storage');
 const router = express.Router();
 const User = require('./user.model');
 const Trip = require('../trips/trip.model');
@@ -19,16 +20,37 @@ router.get('/profile', auth, async (req, res, next) => {
 // PUT /api/users/profile
 router.put('/profile', auth, async (req, res, next) => {
   try {
-    const allowedUpdates = ['name', 'bio', 'location', 'interests', 'avatar'];
+    // Only these fields, only plain strings, with length limits.
+    const body = req.body || {};
+    const LIMITS = { name: 80, bio: 160, location: 80 };
     const updates = {};
-    
-    for (const key of allowedUpdates) {
-      if (req.body[key] !== undefined) {
-        updates[key] = req.body[key];
-      }
+    for (const [key, max] of Object.entries(LIMITS)) {
+      if (body[key] === undefined) continue;
+      if (typeof body[key] !== 'string') return res.status(400).json({ message: `${key} must be text` });
+      const value = body[key].trim();
+      if (value.length > max) return res.status(400).json({ message: `${key} is too long (max ${max})` });
+      if (key === 'name' && !value) return res.status(400).json({ message: 'Name can’t be empty' });
+      updates[key] = value;
+    }
+    if (body.interests !== undefined) {
+      if (!Array.isArray(body.interests)) return res.status(400).json({ message: 'interests must be a list' });
+      updates.interests = body.interests.filter((i) => typeof i === 'string').map((i) => i.trim().slice(0, 40)).slice(0, 20);
+    }
+    if (body.avatar !== undefined) {
+      // Only a photo YOU uploaded (our storage, your avatars/ folder) or your
+      // Google photo — never arbitrary links, javascript: or data: URLs.
+      const ownPrefix = storage.publicUrl(`avatars/${req.user._id}/`);
+      const ok =
+        body.avatar === '' ||
+        (typeof body.avatar === 'string' &&
+          body.avatar.length <= 500 &&
+          !/\s/.test(body.avatar) &&
+          (body.avatar.startsWith(ownPrefix) || /^https:\/\/lh3\.googleusercontent\.com\//.test(body.avatar)));
+      if (!ok) return res.status(400).json({ message: 'Invalid avatar' });
+      updates.avatar = body.avatar;
     }
 
-    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true })
+    const user = await User.findByIdAndUpdate(req.user._id, updates, { new: true, runValidators: true })
       .select('-password -refreshToken -otpCode -otpExpiry -passwordReset -googleId');
     
     res.json(user);

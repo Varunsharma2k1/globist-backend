@@ -8,6 +8,8 @@ const Referral = require('../users/referral.model');
 const { auth } = require('../../shared/middleware/auth');
 const idempotency = require('../../shared/middleware/idempotency');
 const rateLimit = require('../../shared/middleware/rateLimit');
+const mongoose = require('mongoose');
+const env = require('../../config/env');
 const payments = require('../payments/payments.service');
 
 const HOLD_SEC = 600; // HLD: seat hold SET NX EX 600
@@ -20,25 +22,45 @@ router.post('/', auth, rateLimit({ name: 'booking', max: 20 }), idempotency(), a
     // Without it the legacy instant-confirm flow runs, so today's app keeps working.
     const payFlow = pay === true;
 
+    if (!mongoose.isValidObjectId(tripId)) {
+      return res.status(404).json({ message: 'This trip is not available for booking yet' });
+    }
     const trip = await Trip.findById(tripId).populate('agency');
-    if (!trip) {
+    if (!trip || !trip.agency) {
       return res.status(404).json({ message: 'Trip not found' });
     }
 
-    const numAdults = adults || 1;
-    const numChildren = children || 0;
+    // Dates: the departure must be a real date; the return is computed from
+    // the trip's length (the client's value is ignored).
+    const start = new Date(checkIn);
+    if (Number.isNaN(start.getTime())) {
+      return res.status(400).json({ message: 'Pick a valid departure date' });
+    }
+    const end = new Date(start);
+    end.setDate(end.getDate() + Math.max(1, Number(trip.duration) || 1));
+
+    // A referral counts only if it names a real, different user.
+    const referrer =
+      referredBy && mongoose.isValidObjectId(referredBy) && String(referredBy) !== String(req.user._id)
+        ? await User.exists({ _id: referredBy })
+        : null;
+
+    const numAdults = Math.min(Math.max(parseInt(adults, 10) || 1, 1), 20);
+    const numChildren = Math.min(Math.max(parseInt(children, 10) || 0, 0), 20);
     const baseAmount = trip.pricePerPerson * numAdults;
     const platformFee = 500;
     const discount = 1200; // First booking discount (prototype)
-    const pointsDiscount = Math.min(referralPointsUsed || 0, req.user.referralPoints);
+    // Clamp to [0, balance]: a negative value would otherwise ADD points.
+    const requestedPoints = Math.max(0, parseInt(referralPointsUsed, 10) || 0);
+    const pointsDiscount = Math.min(requestedPoints, Math.max(0, req.user.referralPoints || 0));
     const totalAmount = baseAmount + platformFee - discount - pointsDiscount;
 
     const booking = new Booking({
       user: req.user._id,
       trip: trip._id,
       agency: trip.agency._id,
-      checkIn: new Date(checkIn),
-      checkOut: new Date(checkOut),
+      checkIn: start,
+      checkOut: end,
       adults: numAdults,
       children: numChildren,
       totalAmount: Math.max(totalAmount, 0),
@@ -46,9 +68,9 @@ router.post('/', auth, rateLimit({ name: 'booking', max: 20 }), idempotency(), a
       platformFee,
       paymentMethod: paymentMethod || 'upi',
       referralPointsUsed: pointsDiscount,
-      status: payFlow ? 'pending' : 'confirmed',
+      status: payFlow ? 'pending' : env.demo.autoCompleteBookings ? 'completed' : 'confirmed',
       holdExpiresAt: payFlow ? new Date(Date.now() + HOLD_SEC * 1000) : undefined,
-      referredBy: referredBy || undefined
+      referredBy: referrer ? referrer._id : undefined
     });
 
     if (payFlow) {
@@ -76,17 +98,17 @@ router.post('/', auth, rateLimit({ name: 'booking', max: 20 }), idempotency(), a
     });
 
     // If referred by someone, create referral record and award points
-    if (referredBy) {
+    if (referrer) {
       const pointsEarned = Math.floor(trip.pricePerPerson * numAdults * 0.03);
       const referral = new Referral({
-        creator: referredBy,
+        creator: referrer._id,
         booking: booking._id,
         pointsEarned,
         percentage: 3
       });
       await referral.save();
 
-      await User.findByIdAndUpdate(referredBy, {
+      await User.findByIdAndUpdate(referrer._id, {
         $inc: { referralPoints: pointsEarned, 'stats.bookingsInspired': 1 }
       });
     }

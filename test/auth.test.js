@@ -189,8 +189,9 @@ test('change password keeps this device, signs out the others', async () => {
   assert.equal((await call('POST', '/auth/password/change', { currentPassword: 'nope-nope-1', newPassword: 'changed-pass-1' }, a.token)).status, 401);
   const res = await call('POST', '/auth/password/change', { currentPassword: 'correct-horse-1', newPassword: 'changed-pass-1' }, a.token);
   assert.equal(res.status, 200);
-  assert.equal((await call('GET', '/users/profile', null, a.token)).status, 200);
-  assert.equal((await call('GET', '/users/profile', null, b.token)).status, 401);
+  // Check sessions (not the 2 s test access tokens, which may expire mid-test).
+  assert.equal((await call('POST', '/auth/refresh', { refreshToken: a.refreshToken })).status, 200);
+  assert.equal((await call('POST', '/auth/refresh', { refreshToken: b.refreshToken })).status, 401);
 });
 
 test('security headers are set and the framework is not advertised', async () => {
@@ -198,4 +199,50 @@ test('security headers are set and the framework is not advertised', async () =>
   assert.equal(headers.get('x-powered-by'), null);
   assert.equal(headers.get('x-content-type-options'), 'nosniff');
   assert.ok(headers.get('strict-transport-security'));
+});
+
+test('profile update: allowlisted, typed and length-limited', async () => {
+  const { data } = await signup(newEmail());
+  const put = (body) => call('PUT', '/users/profile', body, data.token);
+  const ok = await put({ name: 'Riya K', bio: 'Mountains > beaches', location: 'Pune', role: 'agency', isVerified: true });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.data.bio, 'Mountains > beaches');
+  assert.equal(ok.data.role, 'traveler'); // not changeable here
+  assert.equal(ok.data.isVerified, false);
+  assert.equal((await put({ bio: 'x'.repeat(161) })).status, 400);
+  assert.equal((await put({ name: '  ' })).status, 400);
+  assert.equal((await put({ avatar: 'javascript:alert(1)' })).status, 400);
+  assert.equal((await put({ name: { $gt: '' } })).status, 400);
+});
+
+test('GET /reels/mine returns only my tapes', async () => {
+  const a = (await signup(newEmail())).data;
+  const b = (await signup(newEmail())).data;
+  await call('POST', '/reels', { caption: 'mine', location: 'Goa', mediaUrl: 'https://x/a.mp4' }, a.token);
+  await call('POST', '/reels', { caption: 'theirs', location: 'Goa', mediaUrl: 'https://x/b.mp4' }, b.token);
+  const mine = (await call('GET', '/reels/mine', null, a.token)).data;
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].caption, 'mine');
+  assert.equal((await call('GET', '/reels/mine')).status, 401);
+});
+
+test('avatar upload: images only, size-capped, and only your own photo can be set', async () => {
+  const me = (await signup(newEmail())).data;
+  const other = (await signup(newEmail())).data;
+  const presign = (body, token = me.token) => call('POST', '/media/avatar-upload-url', body, token);
+
+  assert.equal((await presign({ contentType: 'image/jpeg', size: 1000 }, null)).status, 401);
+  assert.equal((await presign({ contentType: 'video/mp4', size: 1000 })).status, 400);
+  assert.equal((await presign({ contentType: 'image/jpeg' })).status, 400);
+  assert.equal((await presign({ contentType: 'image/jpeg', size: 6 * 1024 * 1024 })).status, 413);
+  const ok = await presign({ contentType: 'image/jpeg', size: 120000 });
+  assert.equal(ok.status, 200);
+  assert.ok(ok.data.uploadUrl && ok.data.publicUrl.includes(`avatars/${me.user._id}/`));
+
+  const put = (avatar, token = me.token) => call('PUT', '/users/profile', { avatar }, token);
+  assert.equal((await put(ok.data.publicUrl)).status, 200);
+  assert.equal((await put(ok.data.publicUrl, other.token)).status, 400); // someone else's photo
+  assert.equal((await put('https://evil.example/x.jpg')).status, 400);
+  assert.equal((await put('https://lh3.googleusercontent.com/a/abc')).status, 200); // Google photo
+  assert.equal((await put('')).status, 200); // remove
 });
