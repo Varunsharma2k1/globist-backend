@@ -1,13 +1,13 @@
 # TripTape API — production image (Render today, ECS/EC2 later: same image).
 # FFmpeg is installed here because tape uploads are transcoded on the server.
 
-FROM node:20-bookworm-slim AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 # Production dependencies only, exactly as locked; no install scripts from deps.
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg tini ca-certificates \
   && rm -rf /var/lib/apt/lists/*
