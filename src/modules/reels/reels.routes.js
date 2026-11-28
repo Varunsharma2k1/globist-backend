@@ -1,4 +1,5 @@
 const express = require('express');
+const env = require('../../config/env');
 const router = express.Router();
 const Reel = require('./reel.model');
 const { resolveAffiliation, agencyReels, tapeStats, userReels } = require('./reels.service');
@@ -100,8 +101,11 @@ router.get('/trending', async (req, res, next) => {
   }
 });
 
-// POST /api/reels — Post a new reel
+// POST /api/reels — create a tape from a mediaUrl. Dev/test only: it would let
+// anyone point a tape at any outside video. Real posting is POST /api/media/reels,
+// which only accepts a file actually uploaded to our R2 bucket.
 router.post('/', auth, async (req, res, next) => {
+  if (env.isProd) return res.status(410).json({ message: 'Use /api/media/reels to post a tape' });
   try {
     // agencyId / isAffiliate from the client are ignored: tagging comes only from a verified booking.
     const { caption, tags, location, bookingId, imageType, musicTitle, mediaUrl } = req.body || {};

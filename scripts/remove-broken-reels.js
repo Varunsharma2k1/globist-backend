@@ -1,8 +1,9 @@
 /**
- * Removes tapes whose video isn't a real upload: the old seeded demo tapes
- * (mediaUrl "/uploads/reels/…", which only ever existed on a dev laptop) and
- * tapes with no media at all. Also removes their likes, comments and
- * notifications. Real tapes (R2/CDN https URLs) are never touched.
+ * Keeps only tapes whose video is a real upload in our R2 media bucket
+ * (served from CDN_BASE_URL or an r2.dev / r2.cloudflarestorage.com URL).
+ * Everything else — old seeded demo tapes, sample videos from other sites,
+ * local "/uploads/…" paths, tapes with no media — is deleted together with
+ * its likes, comments and notifications.
  *
  *   node scripts/remove-broken-reels.js        # preview only
  *   node scripts/remove-broken-reels.js --yes  # delete
@@ -15,17 +16,32 @@ const Like = require('../src/modules/reels/like.model');
 const ReelComment = require('../src/modules/reels/comment.model');
 const Notification = require('../src/modules/notifications/notification.model');
 
-const BROKEN = {
-  $or: [{ mediaUrl: { $regex: '^/uploads/' } }, { mediaUrl: { $in: ['', null] } }, { mediaUrl: { $exists: false } }],
-};
+// Our media bucket's public address (CDN_BASE_URL), or Cloudflare's own R2 hosts.
+function onR2(url) {
+  if (typeof url !== 'string') return false;
+  const cdn = (env.storage.cdnBaseUrl || '').replace(/\/$/, '');
+  if (cdn && url.startsWith(`${cdn}/`)) return true;
+  return /^https:\/\/[^/]+\.(r2\.dev|r2\.cloudflarestorage\.com)\//.test(url);
+}
 
 async function main() {
   if (!env.mongo.uri) throw new Error('MONGO_URI is not set');
   await mongoose.connect(env.mongo.uri);
-  const reels = await Reel.find(BROKEN, 'caption location mediaUrl createdAt').lean();
-  console.log(`Found ${reels.length} broken tape(s):`);
+  const all = await Reel.find({}, 'caption location mediaUrl createdAt').lean();
+  const keep = all.filter((r) => onR2(r.mediaUrl));
+  const reels = all.filter((r) => !onR2(r.mediaUrl));
+  console.log(`Keeping ${keep.length} tape(s) on R2:`);
+  for (const r of keep) console.log(`  ✓ ${r._id}  ${r.location || '-'}  "${(r.caption || '').slice(0, 40)}"`);
+  if (!keep.length) {
+    console.log('\nNo R2 tapes found — refusing to delete everything. Check CDN_BASE_URL.');
+    await mongoose.disconnect();
+    return;
+  }
+  console.log(`\nRemoving ${reels.length} tape(s) not on R2:`);
   for (const r of reels)
-    console.log(`  ${r._id}  ${r.location || '-'}  ${r.mediaUrl || '(no media)'}  "${(r.caption || '').slice(0, 40)}"`);
+    console.log(
+      `  ✗ ${r._id}  ${r.location || '-'}  ${r.mediaUrl || '(no media)'}  "${(r.caption || '').slice(0, 40)}"`
+    );
 
   if (!process.argv.includes('--yes')) {
     console.log('\nPreview only. Run again with --yes to delete them.');
